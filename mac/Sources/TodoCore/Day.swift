@@ -70,6 +70,13 @@ public struct Day: Hashable, Comparable, Codable, Sendable, CustomStringConverti
         Day.utc.dateComponents([.day], from: noonUTC, to: other.noonUTC).day!
     }
 
+    /// Which week of which month this day's week is, counting the way Korean calendars
+    /// (and ISO 8601) do: a week belongs to the month that holds its Thursday.
+    public var weekOfMonth: (year: Int, month: Int, index: Int) {
+        let thursday = weekStart.adding(days: 3)
+        return (thursday.year, thursday.month, (thursday.day - 1) / 7 + 1)
+    }
+
     /// The seven days of this day's week, Monday first.
     public var week: [Day] { (0..<7).map { weekStart.adding(days: $0) } }
 

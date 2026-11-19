@@ -1,10 +1,14 @@
-// Todo for iPhone (and any browser). Same data and sync rules as the Mac app:
+// done for iPhone (and any browser). Same data and sync rules as the Mac app:
 // every change stamps updated_at, the newest version of an item wins, and
 // changed items stay "dirty" until the server has them.
+//
+// Each to-do lives in one list: a day's, a week's or a month's ("scope"),
+// stored under the first day of that period.
 
 const SUPABASE_URL = 'https://hqyucrsqxvzwtyewxqhi.supabase.co';
 const PUBLISHABLE_KEY = 'sb_publishable_ZphNZVulyrdtVsKzK910jA_cZOAlQi4'; // public by design
 const K = { state: 'todo.state.v1', key: 'todo.key', theme: 'todo.theme', mode: 'todo.mode' };
+const SCOPES = ['day', 'week', 'month'];
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -22,19 +26,19 @@ const monthStart = (s) => s.slice(0, 8) + '01';
 const addMonths = (s, n) => { const [y, m] = nums(s); return fromNoon(new Date(Date.UTC(y, m - 1 + n, 1, 12))); };
 const isoWeekday = (s) => { const w = noon(s).getUTCDay(); return w === 0 ? 7 : w; };
 const weekStart = (s) => addDays(s, 1 - isoWeekday(s));
-const weekOf = (s) => Array.from({ length: 7 }, (_, i) => addDays(weekStart(s), i));
-const daysInMonth = (s) => { const [y, m] = nums(s); return new Date(Date.UTC(y, m, 0)).getUTCDate(); };
-const monthGrid = (s) => {
-  const first = weekStart(monthStart(s));
-  const last = s.slice(0, 8) + pad(daysInMonth(s));
-  const end = addDays(last, 7 - isoWeekday(last));
-  const out = [];
-  for (let d = first; d <= end; d = addDays(d, 1)) out.push(d);
-  return out;
-};
 const localToday = () => { const n = new Date(); return mk(n.getFullYear(), n.getMonth() + 1, n.getDate()); };
 const WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일'];
 const weekdayName = (s) => WEEKDAYS[isoWeekday(s) - 1];
+
+const scopeOf = (i) => (SCOPES.includes(i.scope) ? i.scope : 'day');
+const startOf = (scope, day) => (scope === 'week' ? weekStart(day) : scope === 'month' ? monthStart(day) : day);
+const nextStart = (scope, day) => {
+  const s = startOf(scope, day);
+  return scope === 'week' ? addDays(s, 7) : scope === 'month' ? addMonths(s, 1) : addDays(s, 1);
+};
+// The list an item belongs to; tolerates a day that is not the period's first day.
+const listOf = (i) => ({ scope: scopeOf(i), start: startOf(scopeOf(i), i.day) });
+const inList = (i, list) => { const l = listOf(i); return l.scope === list.scope && l.start === list.start; };
 
 // ---------- state ----------
 function loadState() {
@@ -56,13 +60,8 @@ function save() {
 const live = (i) => i && !i.deleted;
 const inOrder = (a, b) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 const all = () => Object.values(state.items);
-const openOn = (d) => all().filter((i) => live(i) && !i.done && i.day === d).sort(inOrder);
-const doneOn = (d) => all().filter((i) => live(i) && i.done && i.day === d).sort(inOrder);
-const openCounts = () => {
-  const c = {};
-  for (const i of all()) if (live(i) && !i.done) c[i.day] = (c[i.day] || 0) + 1;
-  return c;
-};
+const openIn = (list) => all().filter((i) => live(i) && !i.done && inList(i, list)).sort(inOrder);
+const doneIn = (list) => all().filter((i) => live(i) && i.done && inList(i, list)).sort(inOrder);
 
 function write(item) {
   state.items[item.id] = item;
@@ -72,17 +71,17 @@ function write(item) {
 function update(id, change) {
   const cur = state.items[id];
   if (!live(cur)) return;
-  const next = { ...cur };
+  const next = { ...cur, scope: scopeOf(cur) };
   change(next);
   next.updated_at = Math.max(Date.now(), cur.updated_at + 1);
   write(next);
 }
-function addItem(title, day) {
+function addItem(title, list) {
   const t = title.trim();
   if (!t) return;
-  const last = openOn(day).at(-1);
+  const last = openIn(list).at(-1);
   write({
-    id: crypto.randomUUID(), title: t, day, done: false, starred: false,
+    id: crypto.randomUUID(), title: t, scope: list.scope, day: list.start, done: false, starred: false,
     position: (last ? last.position : 0) + 1, deleted: false, updated_at: Date.now(),
   });
 }
@@ -93,21 +92,32 @@ function commitTitle(id) {
   if (!t) update(id, (i) => { i.deleted = true; });
   else if (t !== cur.title) update(id, (i) => { i.title = t; });
 }
-function moveToDay(id, day) {
+// "Later": the next day, week or month after whichever is later, its own or the current one.
+function postpone(id) {
   const cur = state.items[id];
-  if (!live(cur) || cur.day === day) return;
-  const list = cur.done ? doneOn(day) : openOn(day);
-  const position = (list.length ? list.at(-1).position : 0) + 1;
-  update(id, (i) => { i.day = day; i.position = position; });
+  if (!live(cur)) return;
+  const scope = scopeOf(cur);
+  const own = listOf(cur).start;
+  const current = startOf(scope, view.today);
+  const target = { scope, start: nextStart(scope, own > current ? own : current) };
+  const others = cur.done ? doneIn(target) : openIn(target);
+  const position = (others.length ? others.at(-1).position : 0) + 1;
+  update(id, (i) => { i.day = target.start; i.position = position; });
 }
+// Unfinished to-dos from earlier days, weeks and months move to the top of the current ones.
 function rollOver(today) {
-  const stale = all()
-    .filter((i) => live(i) && !i.done && i.day < today)
-    .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : inOrder(a, b)));
-  if (!stale.length) return 0;
-  const top = openOn(today)[0]?.position ?? 1;
-  stale.forEach((it, k) => update(it.id, (i) => { i.day = today; i.position = top - (stale.length - k); }));
-  return stale.length;
+  let moved = 0;
+  for (const scope of SCOPES) {
+    const current = { scope, start: startOf(scope, today) };
+    const stale = all()
+      .filter((i) => live(i) && !i.done && scopeOf(i) === scope && listOf(i).start < current.start)
+      .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : inOrder(a, b)));
+    if (!stale.length) continue;
+    const top = openIn(current)[0]?.position ?? 1;
+    stale.forEach((it, k) => update(it.id, (i) => { i.day = current.start; i.position = top - (stale.length - k); }));
+    moved += stale.length;
+  }
+  return moved;
 }
 
 // ---------- sync ----------
@@ -128,11 +138,14 @@ const pendingPush = () => [...state.dirty]
   .map((id) => state.items[id])
   .filter((i) => i && (i.deleted || i.title.trim()))
   .sort((a, b) => a.updated_at - b.updated_at)
-  .slice(0, 500);
+  .slice(0, 500)
+  .map((i) => (i.scope ? i : { ...i, scope: 'day' }));
 
 function markPushed(batch) {
   for (const sent of batch) {
-    if (state.items[sent.id] !== sent) continue; // edited again while sending
+    const cur = state.items[sent.id];
+    // Edited again while sending? Then it stays dirty.
+    if (!cur || cur.updated_at !== sent.updated_at || cur.title !== sent.title) continue;
     state.dirty.delete(sent.id);
     if (sent.deleted) delete state.items[sent.id];
   }
@@ -216,18 +229,20 @@ async function sync() {
 
 // ---------- view ----------
 const view = {
-  mode: ['day', 'week', 'month'].includes(store.get(K.mode)) ? store.get(K.mode) : 'day',
+  mode: SCOPES.includes(store.get(K.mode)) ? store.get(K.mode) : 'day',
   today: localToday(),
   anchor: localToday(),
 };
+const currentList = () => ({ scope: view.mode, start: startOf(view.mode, view.anchor) });
 let editingId = null;
 let renderPending = false;
-let focusAfter = null; // { add: day } | { edit: id }
+let focusAfter = null; // { add: true } | { edit: id }
 
 const $ = (id) => document.getElementById(id);
 const svg = (body) => `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 const ICON_MOON = svg('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>');
 const ICON_SUN = svg('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4"/>');
+
 function h(tag, props = {}, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
@@ -246,11 +261,17 @@ function titleText() {
   const [, m, d] = nums(view.anchor);
   if (view.mode === 'day') return `${yp(view.anchor)}${m}월 ${d}일 ${weekdayName(view.anchor)}요일`;
   if (view.mode === 'week') {
-    const s = weekStart(view.anchor), e = addDays(s, 6);
-    const [, sm, sd] = nums(s), [, em, ed] = nums(e);
-    return `${yp(s)}${sm}월 ${sd}일 – ${sm === em ? '' : `${em}월 `}${ed}일`;
+    // A week belongs to the month that holds its Thursday (Korean calendars, ISO 8601).
+    const thursday = addDays(weekStart(view.anchor), 3);
+    const [, tm, td] = nums(thursday);
+    const ordinal = ['첫째', '둘째', '셋째', '넷째', '다섯째'][Math.floor((td - 1) / 7)];
+    return `${yp(thursday)}${tm}월 ${ordinal} 주`;
   }
   return `${nums(view.anchor)[0]}년 ${m}월`;
+}
+function currentTag() {
+  if (startOf(view.mode, view.anchor) !== startOf(view.mode, view.today)) return '';
+  return { day: '오늘', week: '이번 주', month: '이번 달' }[view.mode];
 }
 
 // Re-rendering replaces the list, so wait while someone is typing, and while a
@@ -279,7 +300,7 @@ function render() {
   if (!syncKey || keyRejected) {
     document.querySelector('.top').hidden = true;
     main.replaceChildren(h('div', { class: 'connect' },
-      h('b', { text: 'Todo' }), h('br'),
+      h('b', { text: 'done' }), h('br'),
       keyRejected ? '연결 코드가 맞지 않습니다.' : '아직 연결되지 않았습니다.', h('br'),
       '맥 앱 메뉴 [파일 → 아이폰 연결…]의', h('br'),
       'QR 코드를 카메라로 찍어서 여세요.'));
@@ -288,21 +309,23 @@ function render() {
   }
   document.querySelector('.top').hidden = false;
   $('title').textContent = titleText();
-  $('today-tag').textContent = view.mode === 'day' && view.anchor === view.today ? '오늘' : '';
+  $('today-tag').textContent = currentTag();
   for (const b of document.querySelectorAll('.modes button')) b.classList.toggle('on', b.dataset.mode === view.mode);
   const dark = document.documentElement.dataset.theme === 'dark';
   $('theme').innerHTML = dark ? ICON_SUN : ICON_MOON;
   document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#1e1e1e' : '#ffffff');
 
-  let body;
-  if (view.mode === 'day') body = dayList(view.anchor, true);
-  else if (view.mode === 'week') body = weekView();
-  else body = monthView();
-  main.replaceChildren(body);
+  // Unfinished, then finished, then the add line.
+  const list = currentList();
+  const wrap = h('div', { class: 'list' });
+  for (const item of openIn(list)) wrap.append(row(item));
+  for (const item of doneIn(list)) wrap.append(row(item));
+  wrap.append(addRow(list));
+  main.replaceChildren(wrap);
   $('status').textContent = online ? '' : '오프라인 · 연결되면 맞춰집니다';
 
   if (focusAfter) {
-    const sel = focusAfter.add ? `textarea[data-add="${focusAfter.add}"]` : `textarea[data-edit="${focusAfter.edit}"]`;
+    const sel = focusAfter.add ? 'textarea[data-add]' : `textarea[data-edit="${focusAfter.edit}"]`;
     const el = main.querySelector(sel);
     focusAfter = null;
     if (el) {
@@ -319,19 +342,13 @@ function fit(el) {
   el.style.height = `${el.scrollHeight}px`;
 }
 
-function dayList(day, showPlaceholder) {
-  const wrap = h('div', { class: 'list' });
-  for (const item of openOn(day)) wrap.append(row(item));
-  wrap.append(addRow(day, showPlaceholder));
-  for (const item of doneOn(day)) wrap.append(row(item));
-  return wrap;
-}
-
 function act(change) {
   change();
   scheduleSync();
   render();
 }
+
+const POSTPONE_LABEL = { day: '내일로', week: '다음 주로', month: '다음 달로' };
 
 function row(item) {
   const el = h('div', { class: `row${item.done ? ' done' : ''}` });
@@ -372,13 +389,8 @@ function row(item) {
         },
       }, item.starred ? '★' : '☆'),
       item.done ? null : h('button', {
-        'aria-label': '내일로', onpointerdown: keep, onmousedown: keep,
-        onclick: () => {
-          endEdit();
-          const cur = state.items[item.id];
-          if (cur && !cur.deleted) act(() => moveToDay(item.id, addDays(cur.day > view.today ? cur.day : view.today, 1)));
-          else render();
-        },
+        'aria-label': POSTPONE_LABEL[scopeOf(item)], onpointerdown: keep, onmousedown: keep,
+        onclick: () => { endEdit(); act(() => postpone(item.id)); },
       }, '→'),
       h('button', {
         'aria-label': '삭제', onpointerdown: keep, onmousedown: keep,
@@ -409,11 +421,11 @@ function finishEditing(id) {
   setTimeout(requestRender, 0);
 }
 
-function addRow(day, showPlaceholder) {
+function addRow(list) {
   const ta = h('textarea', {
     rows: 1,
-    'data-add': day,
-    placeholder: showPlaceholder ? '할 일 추가' : '+',
+    'data-add': '',
+    placeholder: '할 일 추가',
     enterkeyhint: 'done',
     'aria-label': '할 일 추가',
     oninput: (e) => {
@@ -422,9 +434,9 @@ function addRow(day, showPlaceholder) {
         const text = t.value.replace(/\n/g, '');
         t.value = '';
         if (text.trim()) {
-          addItem(text, day);
+          addItem(text, list);
           scheduleSync();
-          focusAfter = { add: day };
+          focusAfter = { add: true };
           render();
         } else {
           t.blur();
@@ -436,7 +448,7 @@ function addRow(day, showPlaceholder) {
     onblur: (e) => {
       const t = e.target;
       if (t.value.trim()) {
-        addItem(t.value, day);
+        addItem(t.value, list);
         t.value = '';
         scheduleSync();
         renderPending = true;
@@ -445,37 +457,6 @@ function addRow(day, showPlaceholder) {
     },
   });
   return h('div', { class: 'row add' }, ta);
-}
-
-function weekView() {
-  const wrap = h('div', { class: 'week' });
-  for (const day of weekOf(view.anchor)) {
-    const isToday = day === view.today;
-    wrap.append(h('div', {
-      class: `day-head${isToday ? ' today' : ''}`,
-      onclick: () => { view.anchor = day; setMode('day'); },
-    }, `${nums(day)[2]}일 ${weekdayName(day)}요일${isToday ? ' · 오늘' : ''}`));
-    wrap.append(dayList(day, false));
-  }
-  return wrap;
-}
-
-function monthView() {
-  const counts = openCounts();
-  const month = view.anchor.slice(0, 7);
-  const grid = h('div', { class: 'month' });
-  for (const w of WEEKDAYS) grid.append(h('div', { class: 'dow', text: w }));
-  for (const day of monthGrid(view.anchor)) {
-    const n = Math.min(counts[day] || 0, 3);
-    const dots = h('span', { class: 'dots' });
-    for (let i = 0; i < n; i += 1) dots.append(h('i'));
-    grid.append(h('button', {
-      class: `cell${day.slice(0, 7) === month ? '' : ' other'}${day === view.today ? ' today' : ''}`,
-      'aria-label': `${nums(day)[1]}월 ${nums(day)[2]}일, 할 일 ${counts[day] || 0}개`,
-      onclick: () => { view.anchor = day; setMode('day'); },
-    }, h('b', { text: String(nums(day)[2]) }), dots));
-  }
-  return grid;
 }
 
 // ---------- navigation ----------
@@ -493,7 +474,7 @@ function step(n) {
 function checkDay() {
   const t = localToday();
   if (t === view.today) return;
-  if (view.anchor === view.today) view.anchor = t;
+  if (startOf(view.mode, view.anchor) === startOf(view.mode, view.today)) view.anchor = t;
   view.today = t;
   if (rollOver(t)) scheduleSync();
   requestRender();

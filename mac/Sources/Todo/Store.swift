@@ -12,11 +12,18 @@ enum ViewMode: String, CaseIterable, Identifiable {
         case .month: return "월"
         }
     }
+    var scope: Scope {
+        switch self {
+        case .day: return .day
+        case .week: return .week
+        case .month: return .month
+        }
+    }
 }
 
-/// What has keyboard focus: the "add" line of a day, or a to-do being edited.
+/// What has keyboard focus: the "add" line, or a to-do being edited.
 enum Focus: Hashable {
-    case add(Day)
+    case add
     case item(UUID)
 }
 
@@ -36,9 +43,8 @@ final class Store {
     var dragging: UUID?
     private(set) var online = true
     var showPairing = false
-    /// Bumped to ask the view to focus `addTarget`.
+    /// Bumped to ask the view to focus the add line.
     private(set) var addRequest = 0
-    private(set) var addTarget: Day
 
     @ObservationIgnored private let syncKey: String?
     @ObservationIgnored private let client: SyncClient?
@@ -56,7 +62,6 @@ final class Store {
         let now = Day.today()
         today = now
         anchor = now
-        addTarget = now
         let savedMode = ProcessInfo.processInfo.environment["TODO_MODE"] ?? UserDefaults.standard.string(forKey: "mode")
         mode = ViewMode(rawValue: savedMode ?? "") ?? .day
         syncKey = AppConfig.loadSyncKey()
@@ -79,7 +84,13 @@ final class Store {
         scheduleSync()
     }
 
-    func add(_ title: String, on day: Day) { change { $0.add(title, on: day, now: $1) } }
+    /// The list on screen.
+    var list: ListKey { ListKey(mode.scope, containing: anchor) }
+
+    func add(_ title: String) {
+        let list = list
+        change { $0.add(title, in: list, now: $1) }
+    }
     func setTitle(_ id: UUID, _ title: String) { change { $0.setTitle(id, title, now: $1) } }
     func toggleDone(_ id: UUID) { change { $0.toggleDone(id, now: $1) } }
     func toggleStar(_ id: UUID) { change { $0.toggleStar(id, now: $1) } }
@@ -88,10 +99,9 @@ final class Store {
         change { $0.delete(id, now: $1) }
     }
     func move(_ id: UUID, to target: UUID) { change { $0.move(id, to: target, now: $1) } }
-    func moveToDay(_ id: UUID, _ day: Day) { change { $0.moveToDay(id, day, now: $1) } }
     func postpone(_ id: UUID) {
-        guard let item = state.item(id) else { return }
-        moveToDay(id, max(item.day, today).adding(days: 1))
+        let today = today
+        change { $0.postpone(id, today: today, now: $1) }
     }
 
     func beginEditing(_ id: UUID) {
@@ -121,12 +131,8 @@ final class Store {
         mode = .day
     }
 
-    /// ⌘N: focus the add line of the day in view (today, in a week that contains it).
-    func requestAdd() {
-        if mode == .month { mode = .day }
-        addTarget = mode == .week && anchor.week.contains(today) ? today : (mode == .week ? anchor.weekStart : anchor)
-        addRequest += 1
-    }
+    /// ⌘N: focus the add line.
+    func requestAdd() { addRequest += 1 }
 
     static let weekdays = ["월", "화", "수", "목", "금", "토", "일"]
 
@@ -138,11 +144,29 @@ final class Store {
         case .day:
             return "\(yearPrefix(anchor))\(anchor.month)월 \(anchor.day)일 \(weekday(anchor))요일"
         case .week:
-            let start = anchor.weekStart, end = start.adding(days: 6)
-            let tail = start.month == end.month ? "\(end.day)일" : "\(end.month)월 \(end.day)일"
-            return "\(yearPrefix(start))\(start.month)월 \(start.day)일 – \(tail)"
+            let w = anchor.weekOfMonth
+            let ordinal = ["첫째", "둘째", "셋째", "넷째", "다섯째"][w.index - 1]
+            return "\(yearPrefix(Day(year: w.year, month: w.month, day: 1)))\(w.month)월 \(ordinal) 주"
         case .month:
             return "\(anchor.year)년 \(anchor.month)월"
+        }
+    }
+
+    /// "오늘", "이번 주" or "이번 달" when the list on screen is the current one.
+    var currentTag: String? {
+        guard list == ListKey(mode.scope, containing: today) else { return nil }
+        switch mode {
+        case .day: return "오늘"
+        case .week: return "이번 주"
+        case .month: return "이번 달"
+        }
+    }
+
+    var postponeLabel: String {
+        switch mode {
+        case .day: return "내일로 미루기"
+        case .week: return "다음 주로 미루기"
+        case .month: return "다음 달로 미루기"
         }
     }
 

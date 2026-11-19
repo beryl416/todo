@@ -22,7 +22,8 @@ create table if not exists todo.items (
   space      text not null references todo.spaces (key_hash) on delete cascade,
   id         uuid not null,
   title      text not null default '',
-  day        date not null,
+  scope      text not null default 'day' check (scope in ('day', 'week', 'month')),
+  day        date not null,                    -- the day, or the first day of the week / month
   done       boolean not null default false,
   starred    boolean not null default false,
   position   double precision not null default 0,
@@ -31,6 +32,16 @@ create table if not exists todo.items (
   rev        bigint not null default nextval('todo.rev_seq'),  -- server order for incremental pulls
   primary key (space, id)
 );
+
+-- Added after the first version: daily, weekly and monthly lists.
+alter table todo.items add column if not exists scope text not null default 'day';
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'items_scope_check' and conrelid = 'todo.items'::regclass) then
+    alter table todo.items add constraint items_scope_check check (scope in ('day', 'week', 'month'));
+  end if;
+end
+$$;
 
 create index if not exists items_space_rev on todo.items (space, rev);
 
@@ -75,6 +86,7 @@ begin
       select jsonb_agg(jsonb_build_object(
                'id', i.id,
                'title', i.title,
+               'scope', i.scope,
                'day', to_char(i.day, 'YYYY-MM-DD'),
                'done', i.done,
                'starred', i.starred,
@@ -106,10 +118,11 @@ begin
     raise exception 'bad batch' using errcode = '22023';
   end if;
 
-  insert into todo.items as t (space, id, title, day, done, starred, position, deleted, updated_at)
+  insert into todo.items as t (space, id, title, scope, day, done, starred, position, deleted, updated_at)
   select s,
          (x ->> 'id')::uuid,
          left(coalesce(x ->> 'title', ''), 1000),
+         coalesce(x ->> 'scope', 'day'),
          (x ->> 'day')::date,
          coalesce((x ->> 'done')::boolean, false),
          coalesce((x ->> 'starred')::boolean, false),
@@ -119,6 +132,7 @@ begin
   from jsonb_array_elements(p_items) as x
   on conflict (space, id) do update
     set title      = excluded.title,
+        scope      = excluded.scope,
         day        = excluded.day,
         done       = excluded.done,
         starred    = excluded.starred,

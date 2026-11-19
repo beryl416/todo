@@ -25,32 +25,23 @@ public struct TodoState: Codable, Equatable, Sendable {
         return item
     }
 
-    public func open(on day: Day) -> [TodoItem] {
-        items.values.filter { !$0.deleted && !$0.done && $0.day == day }.sorted(by: Self.inOrder)
+    public func open(in list: ListKey) -> [TodoItem] {
+        items.values.filter { !$0.deleted && !$0.done && $0.list == list }.sorted(by: Self.inOrder)
     }
 
-    public func done(on day: Day) -> [TodoItem] {
-        items.values.filter { !$0.deleted && $0.done && $0.day == day }.sorted(by: Self.inOrder)
-    }
-
-    /// Unfinished to-dos per day, for the month calendar.
-    public func openCounts() -> [Day: Int] {
-        var counts: [Day: Int] = [:]
-        for item in items.values where !item.deleted && !item.done {
-            counts[item.day, default: 0] += 1
-        }
-        return counts
+    public func done(in list: ListKey) -> [TodoItem] {
+        items.values.filter { !$0.deleted && $0.done && $0.list == list }.sorted(by: Self.inOrder)
     }
 
     // MARK: - Editing
 
-    /// Adds a to-do at the end of the day's unfinished list. Blank titles are ignored.
+    /// Adds a to-do at the end of the list's unfinished items. Blank titles are ignored.
     @discardableResult
-    public mutating func add(_ title: String, on day: Day, now: Int64, id: UUID = UUID()) -> TodoItem? {
+    public mutating func add(_ title: String, in list: ListKey, now: Int64, id: UUID = UUID()) -> TodoItem? {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let item = TodoItem(id: id, title: trimmed, day: day,
-                            position: (open(on: day).last?.position ?? 0) + 1, updatedAt: now)
+        let item = TodoItem(id: id, title: trimmed, scope: list.scope, day: list.start,
+                            position: (open(in: list).last?.position ?? 0) + 1, updatedAt: now)
         write(item)
         return item
     }
@@ -83,21 +74,30 @@ public struct TodoState: Codable, Equatable, Sendable {
         update(id, now) { $0.deleted = true }
     }
 
-    /// Moves a to-do to the end of another day's list.
-    public mutating func moveToDay(_ id: UUID, _ day: Day, now: Int64) {
-        guard let item = item(id), item.day != day else { return }
-        let list = item.done ? done(on: day) : open(on: day)
-        let position = (list.last?.position ?? 0) + 1
-        update(id, now) { $0.day = day; $0.position = position }
+    /// Moves a to-do to the end of another list of the same kind (day, week or month).
+    public mutating func move(_ id: UUID, toListContaining day: Day, now: Int64) {
+        guard let item = item(id) else { return }
+        let list = ListKey(item.scope, containing: day)
+        guard list != item.list else { return }
+        let others = item.done ? done(in: list) : open(in: list)
+        let position = (others.last?.position ?? 0) + 1
+        update(id, now) { $0.day = list.start; $0.position = position }
     }
 
-    /// Drag and drop: places `id` where `targetID` is, on the target's day.
+    /// "Later": the next day, week or month after whichever is later, its own or the current one.
+    public mutating func postpone(_ id: UUID, today: Day, now: Int64) {
+        guard let item = item(id) else { return }
+        let from = max(item.list.start, item.scope.start(of: today))
+        move(id, toListContaining: item.scope.next(after: from), now: now)
+    }
+
+    /// Drag and drop: places `id` where `targetID` is, within the target's list.
     /// Dragging down lands after the target, dragging up lands before it.
-    /// Unfinished and finished to-dos are not mixed.
+    /// Unfinished and finished to-dos are not mixed, nor are days, weeks and months.
     public mutating func move(_ id: UUID, to targetID: UUID, now: Int64) {
         guard id != targetID, let moving = item(id), let target = item(targetID),
-              moving.done == target.done else { return }
-        var list = moving.done ? done(on: target.day) : open(on: target.day)
+              moving.done == target.done, moving.scope == target.scope else { return }
+        var list = moving.done ? done(in: target.list) : open(in: target.list)
         let from = list.firstIndex { $0.id == id }
         let movingDown = from.map { $0 < list.firstIndex { $0.id == targetID }! } ?? false
         list.removeAll { $0.id == id }
@@ -105,22 +105,28 @@ public struct TodoState: Codable, Equatable, Sendable {
         let at = movingDown ? t + 1 : t
         let position = Self.between(at > 0 ? list[at - 1].position : nil,
                                     at < list.count ? list[at].position : nil)
-        update(id, now) { $0.day = target.day; $0.position = position }
+        update(id, now) { $0.day = target.list.start; $0.position = position }
     }
 
-    /// Unfinished to-dos from earlier days move to the top of today, oldest first.
+    /// Unfinished to-dos from earlier days, weeks and months move to the top of the
+    /// current day, week and month, oldest first.
     @discardableResult
     public mutating func rollOver(to today: Day, now: Int64) -> Int {
-        let stale = items.values
-            .filter { !$0.deleted && !$0.done && $0.day < today }
-            .sorted { ($0.day, $0.position, $0.id.uuidString) < ($1.day, $1.position, $1.id.uuidString) }
-        guard !stale.isEmpty else { return 0 }
-        let top = open(on: today).first?.position ?? 1
-        for (i, item) in stale.enumerated() {
-            let position = top - Double(stale.count - i)
-            update(item.id, now) { $0.day = today; $0.position = position }
+        var moved = 0
+        for scope in Scope.allCases {
+            let current = ListKey(scope, containing: today)
+            let stale = items.values
+                .filter { !$0.deleted && !$0.done && $0.scope == scope && $0.list.start < current.start }
+                .sorted { ($0.day, $0.position, $0.id.uuidString) < ($1.day, $1.position, $1.id.uuidString) }
+            guard !stale.isEmpty else { continue }
+            let top = open(in: current).first?.position ?? 1
+            for (i, item) in stale.enumerated() {
+                let position = top - Double(stale.count - i)
+                update(item.id, now) { $0.day = current.start; $0.position = position }
+            }
+            moved += stale.count
         }
-        return stale.count
+        return moved
     }
 
     static func between(_ a: Double?, _ b: Double?) -> Double {

@@ -26,6 +26,14 @@ struct DayTests {
         #expect(thursday.week.last == Day(year: 2026, month: 11, day: 22))
     }
 
+    @Test func weekOfMonthFollowsTheThursday() {
+        #expect(Day(year: 2026, month: 11, day: 19).weekOfMonth == (2026, 11, 3))
+        #expect(Day(year: 2026, month: 11, day: 2).weekOfMonth == (2026, 11, 1))
+        #expect(Day(year: 2026, month: 11, day: 1).weekOfMonth == (2026, 10, 5))   // Sunday of Oct 26 – Nov 1
+        #expect(Day(year: 2026, month: 11, day: 30).weekOfMonth == (2026, 12, 1))  // Monday; that Thursday is Dec 3
+        #expect(Day(year: 2027, month: 1, day: 2).weekOfMonth == (2026, 12, 5))    // Thursday is Dec 31
+    }
+
     @Test func monthGridCoversWholeWeeks() {
         let grid = Day(year: 2026, month: 11, day: 19).monthGrid
         #expect(grid.count % 7 == 0)

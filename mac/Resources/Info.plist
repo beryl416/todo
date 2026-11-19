@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Todo</string>
+    <string>done</string>
     <key>CFBundleDisplayName</key>
-    <string>Todo</string>
+    <string>done</string>
     <key>CFBundleIdentifier</key>
     <string>io.github.beryl416.todo</string>
     <key>CFBundleExecutable</key>
-    <string>Todo</string>
+    <string>done</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

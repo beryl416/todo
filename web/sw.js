@@ -1,5 +1,5 @@
 // Network first, cache as fallback: updates show up right away, and the app still opens offline.
-const CACHE = 'todo-v1';
+const CACHE = 'done-v2';
 const SHELL = ['./', './index.html', './app.js', './style.css', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {

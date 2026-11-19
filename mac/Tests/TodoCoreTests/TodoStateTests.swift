@@ -5,33 +5,35 @@ import Testing
 private let mon = Day(year: 2026, month: 11, day: 16)
 private let tue = mon.adding(days: 1)
 private let wed = mon.adding(days: 2)
-
+private func dayOf(_ d: Day) -> ListKey { ListKey(.day, containing: d) }
+private func weekOf(_ d: Day) -> ListKey { ListKey(.week, containing: d) }
+private func monthOf(_ d: Day) -> ListKey { ListKey(.month, containing: d) }
 private func titles(_ items: [TodoItem]) -> [String] { items.map(\.title) }
 
 struct EditingTests {
     @Test func addsInOrderAndIgnoresBlank() {
         var s = TodoState()
-        s.add("a", on: mon, now: 1)
-        s.add("  b  ", on: mon, now: 2)
-        #expect(s.add("   ", on: mon, now: 3) == nil)
-        #expect(titles(s.open(on: mon)) == ["a", "b"])
-        #expect(s.open(on: tue).isEmpty)
+        s.add("a", in: dayOf(mon), now: 1)
+        s.add("  b  ", in: dayOf(mon), now: 2)
+        #expect(s.add("   ", in: dayOf(mon), now: 3) == nil)
+        #expect(titles(s.open(in: dayOf(mon))) == ["a", "b"])
+        #expect(s.open(in: dayOf(tue)).isEmpty)
     }
 
     @Test func doneItemsLeaveTheOpenListAndComeBackInPlace() {
         var s = TodoState()
-        let a = s.add("a", on: mon, now: 1)!
-        s.add("b", on: mon, now: 2)
+        let a = s.add("a", in: dayOf(mon), now: 1)!
+        s.add("b", in: dayOf(mon), now: 2)
         s.toggleDone(a.id, now: 3)
-        #expect(titles(s.open(on: mon)) == ["b"])
-        #expect(titles(s.done(on: mon)) == ["a"])
+        #expect(titles(s.open(in: dayOf(mon))) == ["b"])
+        #expect(titles(s.done(in: dayOf(mon))) == ["a"])
         s.toggleDone(a.id, now: 4)
-        #expect(titles(s.open(on: mon)) == ["a", "b"])
+        #expect(titles(s.open(in: dayOf(mon))) == ["a", "b"])
     }
 
     @Test func clearingTheTitleDeletes() {
         var s = TodoState()
-        let a = s.add("a", on: mon, now: 1)!
+        let a = s.add("a", in: dayOf(mon), now: 1)!
         s.setTitle(a.id, "", now: 2)
         #expect(s.pendingPush().isEmpty) // blank titles wait while being edited
         s.commitTitle(a.id, now: 3)
@@ -41,7 +43,7 @@ struct EditingTests {
 
     @Test func commitTrims() {
         var s = TodoState()
-        let a = s.add("a", on: mon, now: 1)!
+        let a = s.add("a", in: dayOf(mon), now: 1)!
         s.setTitle(a.id, " hello ", now: 2)
         s.commitTitle(a.id, now: 3)
         #expect(s.item(a.id)?.title == "hello")
@@ -49,55 +51,107 @@ struct EditingTests {
 
     @Test func dragDownLandsAfterTargetAndUpLandsBefore() {
         var s = TodoState()
-        let a = s.add("a", on: mon, now: 1)!
-        let b = s.add("b", on: mon, now: 2)!
-        let c = s.add("c", on: mon, now: 3)!
+        let a = s.add("a", in: dayOf(mon), now: 1)!
+        let b = s.add("b", in: dayOf(mon), now: 2)!
+        let c = s.add("c", in: dayOf(mon), now: 3)!
         s.move(a.id, to: b.id, now: 4)
-        #expect(titles(s.open(on: mon)) == ["b", "a", "c"])
+        #expect(titles(s.open(in: dayOf(mon))) == ["b", "a", "c"])
         s.move(c.id, to: b.id, now: 5)
-        #expect(titles(s.open(on: mon)) == ["c", "b", "a"])
-    }
-
-    @Test func dragOntoAnotherDayMovesTheDay() {
-        var s = TodoState()
-        let a = s.add("a", on: mon, now: 1)!
-        let x = s.add("x", on: tue, now: 2)!
-        s.move(a.id, to: x.id, now: 3)
-        #expect(titles(s.open(on: tue)) == ["a", "x"])
-        #expect(s.open(on: mon).isEmpty)
-        s.moveToDay(a.id, wed, now: 4)
-        #expect(titles(s.open(on: wed)) == ["a"])
+        #expect(titles(s.open(in: dayOf(mon))) == ["c", "b", "a"])
     }
 
     @Test func finishedAndUnfinishedDoNotMix() {
         var s = TodoState()
-        let a = s.add("a", on: mon, now: 1)!
-        let b = s.add("b", on: mon, now: 2)!
+        let a = s.add("a", in: dayOf(mon), now: 1)!
+        let b = s.add("b", in: dayOf(mon), now: 2)!
         s.toggleDone(b.id, now: 3)
         s.move(a.id, to: b.id, now: 4)
-        #expect(titles(s.open(on: mon)) == ["a"])
-        #expect(titles(s.done(on: mon)) == ["b"])
+        #expect(titles(s.open(in: dayOf(mon))) == ["a"])
+        #expect(titles(s.done(in: dayOf(mon))) == ["b"])
     }
 
     @Test func rollOverMovesUnfinishedToTopOfToday() {
         var s = TodoState()
-        let old1 = s.add("old1", on: mon, now: 1)!
-        s.add("old2", on: tue, now: 2)
-        let finished = s.add("finished", on: mon, now: 3)!
+        let old1 = s.add("old1", in: dayOf(mon), now: 1)!
+        s.add("old2", in: dayOf(tue), now: 2)
+        let finished = s.add("finished", in: dayOf(mon), now: 3)!
         s.toggleDone(finished.id, now: 4)
-        s.add("today", on: wed, now: 5)
+        s.add("today", in: dayOf(wed), now: 5)
         #expect(s.rollOver(to: wed, now: 6) == 2)
-        #expect(titles(s.open(on: wed)) == ["old1", "old2", "today"])
-        #expect(titles(s.done(on: mon)) == ["finished"])
+        #expect(titles(s.open(in: dayOf(wed))) == ["old1", "old2", "today"])
+        #expect(titles(s.done(in: dayOf(mon))) == ["finished"])
         #expect(s.item(old1.id)?.day == wed)
         #expect(s.rollOver(to: wed, now: 7) == 0)
     }
 
     @Test func everyChangeMovesTheClockForward() {
         var s = TodoState()
-        let a = s.add("a", on: mon, now: 100)!
+        let a = s.add("a", in: dayOf(mon), now: 100)!
         s.toggleStar(a.id, now: 50) // device clock went backwards
         #expect(s.item(a.id)!.updatedAt == 101)
+    }
+}
+
+struct ListTests {
+    @Test func dayWeekAndMonthListsAreSeparate() {
+        var s = TodoState()
+        s.add("daily", in: dayOf(wed), now: 1)
+        let weekly = s.add("weekly", in: weekOf(wed), now: 2)!
+        let monthly = s.add("monthly", in: monthOf(wed), now: 3)!
+        #expect(titles(s.open(in: dayOf(wed))) == ["daily"])
+        #expect(titles(s.open(in: weekOf(tue))) == ["weekly"])          // any day in the week finds it
+        #expect(titles(s.open(in: monthOf(mon))) == ["monthly"])
+        #expect(weekly.scope == .week && weekly.day == mon)               // stored under the week's Monday
+        #expect(monthly.day == Day(year: 2026, month: 11, day: 1))
+    }
+
+    @Test func listsDoNotMixWhenDragging() {
+        var s = TodoState()
+        let d = s.add("daily", in: dayOf(mon), now: 1)!
+        let w = s.add("weekly", in: weekOf(mon), now: 2)!
+        s.move(d.id, to: w.id, now: 3)
+        #expect(s.item(d.id)?.scope == .day)
+        #expect(titles(s.open(in: weekOf(mon))) == ["weekly"])
+    }
+
+    @Test func weeksAndMonthsRollOverToTheCurrentOne() {
+        var s = TodoState()
+        let lastWeek = mon.adding(days: -7)
+        let lastMonth = Day(year: 2026, month: 10, day: 20)
+        s.add("old week", in: weekOf(lastWeek), now: 1)
+        s.add("old month", in: monthOf(lastMonth), now: 2)
+        s.add("this week", in: weekOf(mon), now: 3)
+        #expect(s.rollOver(to: wed, now: 4) == 2)
+        #expect(titles(s.open(in: weekOf(wed))) == ["old week", "this week"])
+        #expect(titles(s.open(in: monthOf(wed))) == ["old month"])
+    }
+
+    @Test func postponeGoesToTheNextPeriod() {
+        var s = TodoState()
+        let d = s.add("d", in: dayOf(wed), now: 1)!
+        let w = s.add("w", in: weekOf(wed), now: 2)!
+        let m = s.add("m", in: monthOf(wed), now: 3)!
+        s.postpone(d.id, today: wed, now: 4)
+        s.postpone(w.id, today: wed, now: 5)
+        s.postpone(m.id, today: wed, now: 6)
+        #expect(s.item(d.id)?.day == wed.adding(days: 1))
+        #expect(s.item(w.id)?.day == Day(year: 2026, month: 11, day: 23))
+        #expect(s.item(m.id)?.day == Day(year: 2026, month: 12, day: 1))
+    }
+
+    @Test func toleratesAWeeklyItemStoredUnderAMidweekDay() {
+        // An older app version could save a weekly to-do under a Thursday.
+        var s = TodoState()
+        let odd = TodoItem(title: "odd", scope: .week, day: mon.adding(days: 3), position: 1, updatedAt: 1)
+        s.applyFull([odd], rev: 1)
+        #expect(titles(s.open(in: weekOf(mon))) == ["odd"])
+        #expect(s.rollOver(to: wed, now: 2) == 0)
+    }
+
+    @Test func itemsWithoutScopeDecodeAsDaily() throws {
+        let json = #"{"id":"6733bdea-7a80-4402-b26f-a98936983971","title":"x","day":"2026-11-19","updated_at":1}"#
+        let item = try JSONDecoder().decode(TodoItem.self, from: Data(json.utf8))
+        #expect(item.scope == .day)
     }
 }
 
@@ -108,8 +162,8 @@ struct SyncTests {
 
     @Test func pushedItemsAreCleanUnlessEditedAgain() {
         var s = TodoState()
-        let a = s.add("a", on: mon, now: 1)!
-        let b = s.add("b", on: mon, now: 2)!
+        let a = s.add("a", in: dayOf(mon), now: 1)!
+        let b = s.add("b", in: dayOf(mon), now: 2)!
         let batch = s.pendingPush()
         s.setTitle(b.id, "b2", now: 3) // edited while the push was in flight
         s.markPushed(batch)
@@ -119,7 +173,7 @@ struct SyncTests {
 
     @Test func pushedDeletesAreForgotten() {
         var s = TodoState()
-        let a = s.add("a", on: mon, now: 1)!
+        let a = s.add("a", in: dayOf(mon), now: 1)!
         s.delete(a.id, now: 2)
         s.markPushed(s.pendingPush())
         #expect(s.items.isEmpty)
@@ -128,8 +182,8 @@ struct SyncTests {
 
     @Test func fullPullReplacesCleanItemsAndKeepsLocalEdits() {
         var s = TodoState()
-        let mine = s.add("mine", on: mon, now: 10)!
-        let gone = s.add("gone", on: mon, now: 11)!
+        let mine = s.add("mine", in: dayOf(mon), now: 10)!
+        let gone = s.add("gone", in: dayOf(mon), now: 11)!
         s.markPushed(s.pendingPush())
         s.setTitle(mine.id, "mine edited", now: 20)
         let theirs = UUID()
@@ -142,7 +196,7 @@ struct SyncTests {
 
     @Test func newerRemoteEditBeatsOlderLocalEdit() {
         var s = TodoState()
-        let a = s.add("a", on: mon, now: 10)!
+        let a = s.add("a", in: dayOf(mon), now: 10)!
         s.markPushed(s.pendingPush())
         s.setTitle(a.id, "local", now: 20)
         s.applyChanges([server("remote", id: a.id, at: 30)], rev: 5)
@@ -152,7 +206,7 @@ struct SyncTests {
 
     @Test func olderRemoteEditDoesNotOverwriteLocal() {
         var s = TodoState()
-        let a = s.add("a", on: mon, now: 10)!
+        let a = s.add("a", in: dayOf(mon), now: 10)!
         s.setTitle(a.id, "local", now: 20)
         s.applyChanges([server("remote", id: a.id, at: 15)], rev: 5)
         #expect(s.item(a.id)?.title == "local")
@@ -162,7 +216,7 @@ struct SyncTests {
     @Test func remoteDeletesAndCursor() {
         var s = TodoState()
         #expect(s.pullCursor == 0)
-        let a = s.add("a", on: mon, now: 10)!
+        let a = s.add("a", in: dayOf(mon), now: 10)!
         s.markPushed(s.pendingPush())
         s.applyChanges([server("a", id: a.id, at: 11, deleted: true)], rev: 100)
         #expect(s.item(a.id) == nil)
@@ -173,7 +227,7 @@ struct SyncTests {
 
     @Test func savesAndLoads() throws {
         var s = TodoState()
-        s.add("a", on: mon, now: 1)
+        s.add("a", in: weekOf(mon), now: 1)
         let copy = try JSONDecoder().decode(TodoState.self, from: JSONEncoder().encode(s))
         #expect(copy == s)
     }

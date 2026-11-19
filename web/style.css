@@ -96,12 +96,8 @@ button { cursor: pointer; touch-action: manipulation; }
   height: 15px;
   border: 1px solid var(--box);
   border-radius: 4px;
-  display: grid;
-  place-items: center;
-  font-size: 10px;
-  line-height: 1;
 }
-.done .check span::after { content: "✓"; color: var(--soft); }
+.done .check span { background: var(--box); }
 .text {
   flex: 1;
   min-width: 0;

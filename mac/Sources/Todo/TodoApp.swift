@@ -7,7 +7,7 @@ struct TodoApp: App {
     @State private var store = Store()
 
     var body: some Scene {
-        Window("Todo", id: "main") {
+        Window("done", id: "main") {
             ContentView()
                 .environment(store)
                 .frame(minWidth: 340, minHeight: 320)

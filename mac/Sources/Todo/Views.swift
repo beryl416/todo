@@ -30,16 +30,10 @@ struct ContentView: View {
                 .padding(.top, 10)
                 .padding(.bottom, 12)
             ScrollView {
-                Group {
-                    switch store.mode {
-                    case .day: DayList(day: store.anchor, focus: $focus, alwaysShowPlaceholder: true)
-                    case .week: WeekView(focus: $focus)
-                    case .month: MonthView()
-                    }
-                }
-                .padding(.horizontal, Theme.side)
-                .padding(.bottom, 28)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                TaskList(focus: $focus)
+                    .padding(.horizontal, Theme.side)
+                    .padding(.bottom, 28)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .background {
                 // Clicking empty space ends editing.
@@ -61,7 +55,7 @@ struct ContentView: View {
             DispatchQueue.main.async { focus = .item(id) }
         }
         .onChange(of: store.addRequest) { _, _ in
-            DispatchQueue.main.async { focus = .add(store.addTarget) }
+            DispatchQueue.main.async { focus = .add }
         }
     }
 }
@@ -77,8 +71,8 @@ struct Header: View {
                 .padding(.leading, Theme.gutter)
                 .onTapGesture { store.goToToday() }
                 .help("오늘로")
-            if store.mode == .day && store.anchor == store.today {
-                Text("  오늘").font(Theme.small).foregroundStyle(Theme.faint)
+            if let tag = store.currentTag {
+                Text("  \(tag)").font(Theme.small).foregroundStyle(Theme.faint).lineLimit(1)
             }
             Spacer(minLength: 8)
             IconButton(symbol: "chevron.left", help: "이전 (⌘[)") { store.step(-1) }
@@ -153,101 +147,21 @@ struct ThemeToggle: View {
     }
 }
 
-// MARK: - Lists
+// MARK: - List
 
-struct DayList: View {
-    let day: Day
-    var focus: FocusState<Focus?>.Binding
-    let alwaysShowPlaceholder: Bool
-    @Environment(Store.self) private var store
-    @State private var hovering = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(store.state.open(on: day)) { TodoRow(item: $0, focus: focus) }
-            AddRow(day: day, focus: focus, showPlaceholder: alwaysShowPlaceholder || hovering)
-            ForEach(store.state.done(on: day)) { TodoRow(item: $0, focus: focus) }
-        }
-        .onHover { hovering = $0 }
-    }
-}
-
-struct WeekView: View {
+/// The day's, week's or month's to-dos: unfinished, then finished, then the add line.
+struct TaskList: View {
     var focus: FocusState<Focus?>.Binding
     @Environment(Store.self) private var store
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(store.anchor.week, id: \.self) { day in
-                VStack(alignment: .leading, spacing: 0) {
-                    let isToday = day == store.today
-                    Text("\(day.day)일 \(store.weekday(day))요일\(isToday ? " · 오늘" : "")")
-                        .font(isToday ? Theme.bold : Theme.body)
-                        .foregroundStyle(isToday ? Color.primary : Color.secondary)
-                        .padding(.leading, Theme.gutter)
-                        .padding(.top, day == store.anchor.weekStart ? 0 : 14)
-                        .padding(.bottom, 2)
-                        .contentShape(Rectangle())
-                        .onTapGesture { store.show(day: day) }
-                    DayList(day: day, focus: focus, alwaysShowPlaceholder: false)
-                }
-                .onDrop(of: [.text], delegate: DayDrop(day: day, store: store))
-            }
+            ForEach(store.state.open(in: store.list)) { TodoRow(item: $0, focus: focus) }
+            ForEach(store.state.done(in: store.list)) { TodoRow(item: $0, focus: focus) }
+            AddRow(focus: focus)
         }
     }
 }
-
-struct MonthView: View {
-    @Environment(Store.self) private var store
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
-
-    var body: some View {
-        let counts = store.state.openCounts()
-        LazyVGrid(columns: columns, spacing: 0) {
-            ForEach(Store.weekdays, id: \.self) { name in
-                Text(name).font(Theme.small).foregroundStyle(Theme.faint).frame(height: 26)
-            }
-            ForEach(store.anchor.monthGrid, id: \.self) { day in
-                MonthCell(day: day,
-                          inMonth: day.month == store.anchor.month,
-                          isToday: day == store.today,
-                          count: counts[day] ?? 0)
-                    .onTapGesture { store.show(day: day) }
-            }
-        }
-    }
-}
-
-struct MonthCell: View {
-    let day: Day
-    let inMonth: Bool
-    let isToday: Bool
-    let count: Int
-    @State private var hovering = false
-
-    var body: some View {
-        VStack(spacing: 5) {
-            Text("\(day.day)")
-                .font(isToday ? Theme.bold : Theme.body)
-                .underline(isToday)
-                .foregroundStyle(inMonth ? Color.primary : Theme.faint)
-            HStack(spacing: 3) {
-                ForEach(0..<min(count, 3), id: \.self) { _ in
-                    Circle().frame(width: 4, height: 4)
-                }
-            }
-            .foregroundStyle(inMonth ? Color.secondary : Theme.faint)
-            .frame(height: 4)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 50)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(hovering ? 0.05 : 0)))
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-    }
-}
-
-// MARK: - Rows
 
 struct TodoRow: View {
     let item: TodoItem
@@ -260,7 +174,6 @@ struct TodoRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             CheckBox(checked: item.done)
-                .opacity(hovering || item.done ? 1 : 0)
                 .frame(width: Theme.gutter, height: Theme.lineHeight, alignment: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture { store.toggleDone(item.id) }
@@ -295,7 +208,7 @@ struct TodoRow: View {
         .onHover { hovering = $0 }
         .contextMenu {
             Button(item.starred ? "중요 표시 빼기" : "중요 표시") { store.toggleStar(item.id) }
-            if !item.done { Button("내일로 미루기") { store.postpone(item.id) } }
+            if !item.done { Button(store.postponeLabel) { store.postpone(item.id) } }
             Divider()
             Button("삭제") { store.delete(item.id) }
         }
@@ -322,13 +235,9 @@ struct TodoRow: View {
 }
 
 struct AddRow: View {
-    let day: Day
     var focus: FocusState<Focus?>.Binding
-    let showPlaceholder: Bool
     @Environment(Store.self) private var store
     @State private var text = ""
-
-    private var isFocused: Bool { focus.wrappedValue == .add(day) }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -336,13 +245,12 @@ struct AddRow: View {
                 Text("할 일 추가")
                     .font(Theme.body)
                     .foregroundStyle(Theme.faint)
-                    .opacity(showPlaceholder || isFocused ? 1 : 0)
                     .allowsHitTesting(false)
             }
             TextField("", text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(Theme.body)
-                .focused(focus, equals: .add(day))
+                .focused(focus, equals: .add)
                 .onSubmit(submit)
                 .onExitCommand {
                     text = ""
@@ -357,30 +265,27 @@ struct AddRow: View {
         }
         .padding(.leading, Theme.gutter)
         .padding(.vertical, Theme.rowPadding)
-        .onDrop(of: [.text], delegate: DayDrop(day: day, store: store))
     }
 
     private func submit() {
-        store.add(text, on: day)
+        store.add(text)
         text = ""
-        DispatchQueue.main.async { focus.wrappedValue = .add(day) }
+        DispatchQueue.main.async { focus.wrappedValue = .add }
     }
 }
 
+/// An empty box, or a filled one when done.
 struct CheckBox: View {
     let checked: Bool
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 3)
-                .strokeBorder(Color.secondary.opacity(0.6), lineWidth: 1)
-            if checked {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(Color.secondary)
-            }
-        }
-        .frame(width: 13, height: 13)
+        RoundedRectangle(cornerRadius: 3)
+            .fill(checked ? Color.secondary.opacity(0.6) : Color.clear)
+            .overlay(
+                RoundedRectangle(cornerRadius: 3)
+                    .strokeBorder(Color.secondary.opacity(0.6), lineWidth: 1)
+            )
+            .frame(width: 13, height: 13)
     }
 }
 
@@ -395,25 +300,6 @@ struct RowDrop: DropDelegate {
     func dropEntered(info: DropInfo) {
         guard let dragged = store.dragging, dragged != target else { return }
         withAnimation(.easeInOut(duration: 0.12)) { store.move(dragged, to: target) }
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
-
-    func performDrop(info: DropInfo) -> Bool {
-        store.dragging = nil
-        return true
-    }
-}
-
-struct DayDrop: DropDelegate {
-    let day: Day
-    let store: Store
-
-    func validateDrop(info: DropInfo) -> Bool { store.dragging != nil }
-
-    func dropEntered(info: DropInfo) {
-        guard let dragged = store.dragging, let item = store.state.item(dragged), item.day != day else { return }
-        withAnimation(.easeInOut(duration: 0.12)) { store.moveToDay(dragged, day) }
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
