@@ -1,0 +1,493 @@
+import AppKit
+import SwiftUI
+import TodoCore
+
+enum Theme {
+    // Menlo keeps the typewriter look for Latin text while Hangul falls back to its
+    // natural width (the system monospaced design spreads Hangul syllables apart).
+    static let body = Font.custom("Menlo", size: 13)
+    static let bold = Font.custom("Menlo-Bold", size: 13)
+    static let small = Font.custom("Menlo", size: 11)
+    /// Space left of the text where the checkbox sits.
+    static let gutter: CGFloat = 29
+    static let side: CGFloat = 16
+    static let rowPadding: CGFloat = 8
+    static let lineHeight: CGFloat = 16
+    static var background: Color { Color(nsColor: .textBackgroundColor) }
+    static var faint: Color { Color.secondary.opacity(0.45) }
+}
+
+// MARK: - Window
+
+struct ContentView: View {
+    @Environment(Store.self) private var store
+    @FocusState private var focus: Focus?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Header()
+                .padding(.horizontal, Theme.side)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
+            ScrollView {
+                Group {
+                    switch store.mode {
+                    case .day: DayList(day: store.anchor, focus: $focus, alwaysShowPlaceholder: true)
+                    case .week: WeekView(focus: $focus)
+                    case .month: MonthView()
+                    }
+                }
+                .padding(.horizontal, Theme.side)
+                .padding(.bottom, 28)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .background {
+                // Clicking empty space ends editing.
+                Color.clear.contentShape(Rectangle()).onTapGesture { focus = nil }
+            }
+            if store.syncEnabled && !store.online {
+                Text("오프라인 · 연결되면 맞춰집니다")
+                    .font(Theme.small)
+                    .foregroundStyle(Theme.faint)
+                    .padding(.bottom, 8)
+            }
+        }
+        .background(Theme.background)
+        .onChange(of: focus) { old, new in
+            if case .item(let id)? = old, new != .item(id) { store.commitEditing(id) }
+        }
+        .onChange(of: store.editingID) { _, id in
+            guard let id else { return }
+            DispatchQueue.main.async { focus = .item(id) }
+        }
+        .onChange(of: store.addRequest) { _, _ in
+            DispatchQueue.main.async { focus = .add(store.addTarget) }
+        }
+    }
+}
+
+struct Header: View {
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 0) {
+            Text(store.title)
+                .font(Theme.bold)
+                .lineLimit(1)
+                .padding(.leading, Theme.gutter)
+                .onTapGesture { store.goToToday() }
+                .help("오늘로")
+            if store.mode == .day && store.anchor == store.today {
+                Text("  오늘").font(Theme.small).foregroundStyle(Theme.faint)
+            }
+            Spacer(minLength: 8)
+            IconButton(symbol: "chevron.left", help: "이전 (⌘[)") { store.step(-1) }
+            IconButton(symbol: "chevron.right", help: "다음 (⌘])") { store.step(1) }
+            Spacer().frame(width: 10)
+            ForEach(ViewMode.allCases) { mode in
+                Text(mode.label)
+                    .font(Theme.small)
+                    .foregroundStyle(store.mode == mode ? Color.primary : Theme.faint)
+                    .padding(.horizontal, 4)
+                    .frame(height: 18)
+                    .contentShape(Rectangle())
+                    .onTapGesture { store.mode = mode }
+            }
+            Spacer().frame(width: 8)
+            ThemeToggle()
+        }
+    }
+}
+
+struct IconButton: View {
+    let symbol: String
+    let help: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(hovering ? Color.primary : Theme.faint)
+            .frame(width: 20, height: 18)
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .onTapGesture(perform: action)
+            .help(help)
+    }
+}
+
+enum Appearance {
+    static var stored: String { UserDefaults.standard.string(forKey: "appearance") ?? "" }
+
+    static func apply(_ value: String) {
+        switch value {
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        default: NSApp.appearance = nil
+        }
+    }
+
+    static var isDark: Bool { NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
+
+    static func toggle() {
+        let next = isDark ? "light" : "dark"
+        UserDefaults.standard.set(next, forKey: "appearance")
+        apply(next)
+    }
+}
+
+struct ThemeToggle: View {
+    @Environment(\.colorScheme) private var scheme
+    @State private var hovering = false
+
+    var body: some View {
+        Image(systemName: scheme == .dark ? "sun.max" : "moon")
+            .font(.system(size: 11))
+            .foregroundStyle(hovering ? Color.primary : Theme.faint)
+            .frame(width: 20, height: 18)
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .onTapGesture { Appearance.toggle() }
+            .help(scheme == .dark ? "라이트 모드 (⇧⌘D)" : "다크 모드 (⇧⌘D)")
+    }
+}
+
+// MARK: - Lists
+
+struct DayList: View {
+    let day: Day
+    var focus: FocusState<Focus?>.Binding
+    let alwaysShowPlaceholder: Bool
+    @Environment(Store.self) private var store
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(store.state.open(on: day)) { TodoRow(item: $0, focus: focus) }
+            AddRow(day: day, focus: focus, showPlaceholder: alwaysShowPlaceholder || hovering)
+            ForEach(store.state.done(on: day)) { TodoRow(item: $0, focus: focus) }
+        }
+        .onHover { hovering = $0 }
+    }
+}
+
+struct WeekView: View {
+    var focus: FocusState<Focus?>.Binding
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(store.anchor.week, id: \.self) { day in
+                VStack(alignment: .leading, spacing: 0) {
+                    let isToday = day == store.today
+                    Text("\(day.day)일 \(store.weekday(day))요일\(isToday ? " · 오늘" : "")")
+                        .font(isToday ? Theme.bold : Theme.body)
+                        .foregroundStyle(isToday ? Color.primary : Color.secondary)
+                        .padding(.leading, Theme.gutter)
+                        .padding(.top, day == store.anchor.weekStart ? 0 : 14)
+                        .padding(.bottom, 2)
+                        .contentShape(Rectangle())
+                        .onTapGesture { store.show(day: day) }
+                    DayList(day: day, focus: focus, alwaysShowPlaceholder: false)
+                }
+                .onDrop(of: [.text], delegate: DayDrop(day: day, store: store))
+            }
+        }
+    }
+}
+
+struct MonthView: View {
+    @Environment(Store.self) private var store
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
+
+    var body: some View {
+        let counts = store.state.openCounts()
+        LazyVGrid(columns: columns, spacing: 0) {
+            ForEach(Store.weekdays, id: \.self) { name in
+                Text(name).font(Theme.small).foregroundStyle(Theme.faint).frame(height: 26)
+            }
+            ForEach(store.anchor.monthGrid, id: \.self) { day in
+                MonthCell(day: day,
+                          inMonth: day.month == store.anchor.month,
+                          isToday: day == store.today,
+                          count: counts[day] ?? 0)
+                    .onTapGesture { store.show(day: day) }
+            }
+        }
+    }
+}
+
+struct MonthCell: View {
+    let day: Day
+    let inMonth: Bool
+    let isToday: Bool
+    let count: Int
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Text("\(day.day)")
+                .font(isToday ? Theme.bold : Theme.body)
+                .underline(isToday)
+                .foregroundStyle(inMonth ? Color.primary : Theme.faint)
+            HStack(spacing: 3) {
+                ForEach(0..<min(count, 3), id: \.self) { _ in
+                    Circle().frame(width: 4, height: 4)
+                }
+            }
+            .foregroundStyle(inMonth ? Color.secondary : Theme.faint)
+            .frame(height: 4)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 50)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(hovering ? 0.05 : 0)))
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+    }
+}
+
+// MARK: - Rows
+
+struct TodoRow: View {
+    let item: TodoItem
+    var focus: FocusState<Focus?>.Binding
+    @Environment(Store.self) private var store
+    @State private var hovering = false
+
+    private var editing: Bool { store.editingID == item.id }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            CheckBox(checked: item.done)
+                .opacity(hovering || item.done ? 1 : 0)
+                .frame(width: Theme.gutter, height: Theme.lineHeight, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture { store.toggleDone(item.id) }
+            if editing {
+                TextField("", text: titleBinding, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(Theme.body)
+                    .focused(focus, equals: .item(item.id))
+                    .onSubmit { focus.wrappedValue = nil }
+                    .onExitCommand { focus.wrappedValue = nil }
+            } else {
+                Text(item.title)
+                    .font(Theme.body)
+                    .strikethrough(item.done)
+                    .foregroundStyle(item.done ? Theme.faint : Color.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentShape(Rectangle())
+                    .onTapGesture { store.beginEditing(item.id) }
+            }
+            Image(systemName: item.starred ? "star.fill" : "star")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.secondary)
+                .frame(width: 20, height: Theme.lineHeight, alignment: .trailing)
+                .opacity(hovering || item.starred ? 1 : 0)
+                .contentShape(Rectangle())
+                .onTapGesture { store.toggleStar(item.id) }
+                .padding(.leading, 8)
+        }
+        .padding(.vertical, Theme.rowPadding)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .contextMenu {
+            Button(item.starred ? "중요 표시 빼기" : "중요 표시") { store.toggleStar(item.id) }
+            if !item.done { Button("내일로 미루기") { store.postpone(item.id) } }
+            Divider()
+            Button("삭제") { store.delete(item.id) }
+        }
+        .onDrag {
+            store.dragging = item.id
+            return NSItemProvider(object: item.id.uuidString as NSString)
+        }
+        .onDrop(of: [.text], delegate: RowDrop(target: item.id, store: store))
+    }
+
+    private var titleBinding: Binding<String> {
+        Binding(
+            get: { store.state.item(item.id)?.title ?? "" },
+            set: { value in
+                if value.contains("\n") {
+                    store.setTitle(item.id, value.replacingOccurrences(of: "\n", with: " "))
+                    DispatchQueue.main.async { focus.wrappedValue = nil }
+                } else {
+                    store.setTitle(item.id, value)
+                }
+            }
+        )
+    }
+}
+
+struct AddRow: View {
+    let day: Day
+    var focus: FocusState<Focus?>.Binding
+    let showPlaceholder: Bool
+    @Environment(Store.self) private var store
+    @State private var text = ""
+
+    private var isFocused: Bool { focus.wrappedValue == .add(day) }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if text.isEmpty {
+                Text("할 일 추가")
+                    .font(Theme.body)
+                    .foregroundStyle(Theme.faint)
+                    .opacity(showPlaceholder || isFocused ? 1 : 0)
+                    .allowsHitTesting(false)
+            }
+            TextField("", text: $text, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(Theme.body)
+                .focused(focus, equals: .add(day))
+                .onSubmit(submit)
+                .onExitCommand {
+                    text = ""
+                    focus.wrappedValue = nil
+                }
+                .onChange(of: text) { _, value in
+                    if value.contains("\n") {
+                        text = value.replacingOccurrences(of: "\n", with: "")
+                        submit()
+                    }
+                }
+        }
+        .padding(.leading, Theme.gutter)
+        .padding(.vertical, Theme.rowPadding)
+        .onDrop(of: [.text], delegate: DayDrop(day: day, store: store))
+    }
+
+    private func submit() {
+        store.add(text, on: day)
+        text = ""
+        DispatchQueue.main.async { focus.wrappedValue = .add(day) }
+    }
+}
+
+struct CheckBox: View {
+    let checked: Bool
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 3)
+                .strokeBorder(Color.secondary.opacity(0.6), lineWidth: 1)
+            if checked {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Color.secondary)
+            }
+        }
+        .frame(width: 13, height: 13)
+    }
+}
+
+// MARK: - Drag and drop
+
+struct RowDrop: DropDelegate {
+    let target: UUID
+    let store: Store
+
+    func validateDrop(info: DropInfo) -> Bool { store.dragging != nil }
+
+    func dropEntered(info: DropInfo) {
+        guard let dragged = store.dragging, dragged != target else { return }
+        withAnimation(.easeInOut(duration: 0.12)) { store.move(dragged, to: target) }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        store.dragging = nil
+        return true
+    }
+}
+
+struct DayDrop: DropDelegate {
+    let day: Day
+    let store: Store
+
+    func validateDrop(info: DropInfo) -> Bool { store.dragging != nil }
+
+    func dropEntered(info: DropInfo) {
+        guard let dragged = store.dragging, let item = store.state.item(dragged), item.day != day else { return }
+        withAnimation(.easeInOut(duration: 0.12)) { store.moveToDay(dragged, day) }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        store.dragging = nil
+        return true
+    }
+}
+
+// MARK: - iPhone pairing
+
+struct PairingView: View {
+    @Environment(Store.self) private var store
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text("아이폰 연결").font(Theme.bold)
+            if let link = store.pairingLink, let image = QRCode.image(for: link) {
+                Image(nsImage: image)
+                    .interpolation(.none)
+                    .resizable()
+                    .frame(width: 196, height: 196)
+                    .padding(10)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("1. 아이폰 카메라로 찍고 Safari에서 엽니다")
+                    Text("2. 공유 버튼 → 홈 화면에 추가")
+                }
+                .font(Theme.small)
+                .foregroundStyle(Color.secondary)
+                Text("이 코드는 비밀번호처럼 남에게 보여주지 마세요.")
+                    .font(Theme.small)
+                    .foregroundStyle(Theme.faint)
+                    .multilineTextAlignment(.center)
+            } else {
+                Text("이 Mac에 동기화 설정이 없습니다.").font(Theme.small).foregroundStyle(Color.secondary)
+            }
+            Button("닫기") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+        }
+        .padding(24)
+        .frame(width: 320)
+    }
+}
+
+enum QRCode {
+    static func image(for text: String) -> NSImage? {
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(Data(text.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)) else { return nil }
+        let rep = NSCIImageRep(ciImage: output)
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
+        return image
+    }
+}
+
+// MARK: - Window chrome
+
+/// Makes the title bar blend into the page, like the reference.
+struct WindowStyler: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            window.titlebarAppearsTransparent = true
+            window.backgroundColor = .textBackgroundColor
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
