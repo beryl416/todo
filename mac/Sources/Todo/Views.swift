@@ -66,24 +66,38 @@ struct ContentView: View {
             guard let id else { return }
             DispatchQueue.main.async {
                 focus = .item(id)
-                // macOS selects the whole title on focus; put the cursor at the end instead.
-                DispatchQueue.main.async {
-                    if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
-                        editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
-                    }
+                // macOS selects the whole title on focus, sometimes a beat late;
+                // put the cursor at the end instead.
+                for delay in [0.0, 0.05, 0.15] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: caretToEnd)
                 }
             }
         }
         .onChange(of: store.addRequest) { _, _ in
             DispatchQueue.main.async { focus = .add }
         }
+        .onChange(of: store.addingChildTo) { _, id in
+            guard let id else { return }
+            DispatchQueue.main.async { focus = .childAdd(id) }
+        }
     }
 
-    /// Removes the text cursor (and closes an open to-do).
+    /// Turns a whole-title selection (or a cursor at the start) in the field being
+    /// edited into a cursor at the end.
+    private func caretToEnd() {
+        guard let editor = NSApp.windows.lazy.compactMap({ $0.firstResponder as? NSTextView }).first else { return }
+        let length = (editor.string as NSString).length
+        let selection = editor.selectedRange()
+        if selection.location == 0, selection.length == 0 || selection.length == length {
+            editor.setSelectedRange(NSRange(location: length, length: 0))
+        }
+    }
+
+    /// Removes the text cursor (and closes an "add sub-task" line, keeping what was typed).
     private func clearFocus() {
         focus = nil
         NSApp.keyWindow?.makeFirstResponder(nil)
-        if store.expandedID != nil { store.collapse() }
+        store.finishAddingChild()
     }
 }
 
@@ -202,9 +216,9 @@ func titleBinding(_ store: Store, _ id: UUID, onReturn: @escaping () -> Void) ->
     )
 }
 
-/// A to-do. Clicking its title opens it in place to show its sub-tasks and an
-/// "add sub-task" line; clicking again closes it. Renaming and moving it to the
-/// day, week or month list are in its right-click menu.
+/// A to-do with its sub-tasks always shown underneath. Clicking the title edits it;
+/// adding a sub-task, starring, postponing and moving it to the day, week or month
+/// list are in its right-click menu.
 struct TodoRow: View {
     let item: TodoItem
     var focus: FocusState<Focus?>.Binding
@@ -212,13 +226,12 @@ struct TodoRow: View {
     @State private var hovering = false
 
     private var editing: Bool { store.editingID == item.id }
-    private var expanded: Bool { store.expandedID == item.id }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             mainRow
-            if expanded {
-                ForEach(store.state.children(of: item.id)) { ChildRow(item: $0, focus: focus) }
+            ForEach(store.state.children(of: item.id)) { ChildRow(item: $0, focus: focus) }
+            if store.addingChildTo == item.id {
                 ChildAddRow(parentID: item.id, focus: focus)
             }
         }
@@ -245,30 +258,13 @@ struct TodoRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .contentShape(Rectangle())
-                    .onTapGesture { store.toggle(item.id) }
+                    .onTapGesture { store.beginEditing(item.id) }
             }
-            let progress = store.state.progress(of: item.id)
-            if !expanded && progress.total > 0 {
-                Text("\(progress.done)/\(progress.total)")
-                    .font(Theme.small)
-                    .foregroundStyle(Theme.faint)
-                    .frame(height: Theme.lineHeight)
-                    .padding(.leading, 8)
-            }
-            Image(systemName: "pencil")
-                .font(.system(size: 11))
-                .foregroundStyle(Color.secondary)
-                .frame(width: 20, height: Theme.lineHeight, alignment: .trailing)
-                .opacity(hovering && !editing ? 1 : 0)
-                .contentShape(Rectangle())
-                .onTapGesture { store.beginEditing(item.id) }
-                .help("이름 바꾸기")
-                .padding(.leading, 8)
             Image(systemName: item.starred ? "star.fill" : "star")
                 .font(.system(size: 11))
                 .foregroundStyle(item.starred ? Theme.star : Color.secondary)
                 .frame(width: 20, height: Theme.lineHeight, alignment: .trailing)
-                .opacity(hovering || expanded || item.starred ? 1 : 0)
+                .opacity(hovering || item.starred ? 1 : 0)
                 .contentShape(Rectangle())
                 .onTapGesture { store.toggleStar(item.id) }
                 .padding(.leading, 8)
@@ -277,6 +273,7 @@ struct TodoRow: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .contextMenu {
+            Button("하위 할 일 추가") { store.startAddingChild(to: item.id) }
             Button("이름 바꾸기") { store.beginEditing(item.id) }
             Button(item.starred ? "중요 표시 빼기" : "중요 표시") { store.toggleStar(item.id) }
             if !item.done { Button(store.postponeLabel) { store.postpone(item.id) } }
@@ -301,18 +298,17 @@ struct ChildRow: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        let parent = item.parent ?? item.id
         HStack(alignment: .top, spacing: 0) {
             CheckBox(checked: item.done)
                 .frame(width: Theme.gutter, height: Theme.lineHeight, alignment: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture { store.toggleDone(item.id) }
             if store.editingID == item.id {
-                TextField("", text: titleBinding(store, item.id) { focus.wrappedValue = .childAdd(parent) }, axis: .vertical)
+                TextField("", text: titleBinding(store, item.id) { focus.wrappedValue = nil }, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(Theme.body)
                     .focused(focus, equals: .item(item.id))
-                    .onSubmit { focus.wrappedValue = .childAdd(parent) }
+                    .onSubmit { focus.wrappedValue = nil }
                     .onExitCommand { focus.wrappedValue = nil }
             } else {
                 Text(item.title)
@@ -332,50 +328,57 @@ struct ChildRow: View {
     }
 }
 
+/// The "add sub-task" line under a to-do, opened from its right-click menu.
+/// Return adds a sub-task and stays for the next; Return on an empty line, Escape,
+/// or clicking elsewhere closes it.
 struct ChildAddRow: View {
     let parentID: UUID
     var focus: FocusState<Focus?>.Binding
     @Environment(Store.self) private var store
-    @State private var text = ""
 
     var body: some View {
+        @Bindable var store = store
         ZStack(alignment: .topLeading) {
-            if text.isEmpty {
+            if store.childDraft.isEmpty {
                 Text("하위 할 일 추가")
                     .font(Theme.body)
                     .foregroundStyle(Theme.faint)
                     .allowsHitTesting(false)
             }
-            TextField("", text: $text, axis: .vertical)
+            TextField("", text: $store.childDraft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(Theme.body)
                 .focused(focus, equals: .childAdd(parentID))
                 .onSubmit(submit)
                 .onExitCommand {
-                    text = ""
+                    store.cancelAddingChild()
                     focus.wrappedValue = nil
                 }
-                .onChange(of: text) { _, value in
+                .onChange(of: store.childDraft) { _, value in
                     if value.contains("\n") {
-                        text = value.replacingOccurrences(of: "\n", with: "")
+                        store.childDraft = value.replacingOccurrences(of: "\n", with: "")
                         submit()
                     }
                 }
         }
         .padding(.leading, Theme.gutter) // starts where the sub-task checkboxes start
         .padding(.vertical, 5)
+        .onChange(of: focus.wrappedValue) { old, new in
+            let mine = Focus.childAdd(parentID)
+            guard old == mine, new != mine else { return }
+            // Checked a moment later: Return can drop focus briefly before it comes back.
+            DispatchQueue.main.async {
+                if focus.wrappedValue != mine { store.finishAddingChild(only: parentID) }
+            }
+        }
     }
 
-    /// Return adds the sub-task; Return on an empty line closes the to-do.
     private func submit() {
-        let title = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        text = ""
-        if title.isEmpty {
+        if store.submitChild() {
+            DispatchQueue.main.async { focus.wrappedValue = .childAdd(parentID) }
+        } else {
             focus.wrappedValue = nil
-            return
         }
-        store.addChild(title, to: parentID)
-        DispatchQueue.main.async { focus.wrappedValue = .childAdd(parentID) }
     }
 }
 

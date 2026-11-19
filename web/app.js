@@ -115,6 +115,19 @@ function changeScope(id, scope) {
   const position = (others.length ? others.at(-1).position : 0) + 1;
   update(id, (i) => { i.scope = scope; i.day = target.start; i.position = position; });
 }
+// Starring a to-do also moves it to the top of its list (unfinished or finished);
+// un-starring leaves it where it is.
+function toggleStar(id) {
+  const cur = state.items[id];
+  if (!live(cur)) return;
+  if (cur.starred || cur.parent) { update(id, (i) => { i.starred = !i.starred; }); return; }
+  const list = listOf(cur);
+  const first = (cur.done ? doneIn(list) : openIn(list)).find((i) => i.id !== id);
+  update(id, (i) => {
+    i.starred = true;
+    if (first && first.position <= i.position) i.position = first.position - 1;
+  });
+}
 function commitTitle(id) {
   const cur = state.items[id];
   if (!live(cur)) return;
@@ -264,10 +277,12 @@ const view = {
   anchor: localToday(),
 };
 const currentList = () => ({ scope: view.mode, start: startOf(view.mode, view.anchor) });
-let expandedId = null; // the to-do opened to show its sub-tasks
-let editingId = null;  // the sub-task whose title is being edited
+let activeId = null;      // the to-do being edited, with its tools showing
+let editingId = null;     // the sub-task being edited
+let addingChildTo = null; // the to-do showing an "add sub-task" line
 let renderPending = false;
-let focusAfter = null; // { add: true } | { edit: id } | { childAdd: parentId }
+let rendering = false;    // a redraw removes text boxes; their blur is not the user leaving
+let focusAfter = null;    // { add: true } | { edit: id } | { childAdd: parentId }
 
 const $ = (id) => document.getElementById(id);
 const svg = (body) => `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -305,8 +320,8 @@ function titleText() {
 // finger or mouse is down (redrawing mid-tap would swallow the tap).
 let pointerDown = false;
 function typing() {
-  const a = document.activeElement;
-  return a && a.tagName === 'TEXTAREA';
+  const a = document.activeElement; // a list picker counts: redrawing would close it
+  return a && (a.tagName === 'TEXTAREA' || a.tagName === 'SELECT');
 }
 function requestRender() {
   if (typing() || pointerDown) { renderPending = true; return; }
@@ -315,8 +330,19 @@ function requestRender() {
 document.addEventListener('pointerdown', (e) => {
   pointerDown = true;
   const t = e.target;
-  // A tap outside the open to-do closes it.
-  if (expandedId && !t.closest(`[data-block="${expandedId}"]`)) { collapse(); renderPending = true; }
+  // A tap outside the to-do being edited puts its tools away.
+  if (activeId && !t.closest(`[data-row="${activeId}"]`)) {
+    const id = activeId;
+    activeId = null;
+    commitTitle(id);
+    scheduleSync();
+    renderPending = true;
+  }
+  // A tap outside the "add sub-task" line closes it, keeping what was typed.
+  if (addingChildTo && !t.closest(`[data-child-add-row="${addingChildTo}"]`)) {
+    finishAddingChild();
+    renderPending = true;
+  }
   // A tap on empty space removes the cursor.
   if (!t.closest('textarea, button, select, label, .text')) {
     const a = document.activeElement;
@@ -325,9 +351,12 @@ document.addEventListener('pointerdown', (e) => {
 }, true);
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  const line = addingChildTo && $('main').querySelector(`textarea[data-child-add="${addingChildTo}"]`);
+  if (line) line.value = ''; // Escape drops what was typed there
+  finishEdits();
   const a = document.activeElement;
   if (a && a.tagName === 'TEXTAREA') a.blur();
-  if (expandedId) { collapse(); render(); }
+  render();
 });
 for (const type of ['pointerup', 'pointercancel']) {
   document.addEventListener(type, () => {
@@ -367,7 +396,8 @@ function render() {
   for (const item of openIn(list)) wrap.append(row(item));
   for (const item of doneIn(list)) wrap.append(row(item));
   wrap.append(addRow(list));
-  main.replaceChildren(wrap);
+  rendering = true;
+  try { main.replaceChildren(wrap); } finally { rendering = false; }
   for (const ta of main.querySelectorAll('textarea')) fit(ta);
   $('status').textContent = online ? '' : '오프라인 · 연결되면 맞춰집니다';
 
@@ -405,31 +435,53 @@ function act(change) {
   render();
 }
 
-// ---------- open to-dos and sub-tasks ----------
+// ---------- to-dos and sub-tasks ----------
+// Sub-tasks always show under their to-do. Tapping a to-do's title edits it in place
+// and shows its tools: star, postpone, list, add sub-task, delete.
 const POSTPONE_LABEL = { day: '내일로', week: '다음 주로', month: '다음 달로' };
 const SCOPE_LABEL = { day: '일', week: '주', month: '월' };
 const keep = (e) => e.preventDefault(); // tapping this must not take the cursor away
 
-// Tapping a to-do opens it in place to show its sub-tasks; tapping it again closes it.
-function toggleItem(id) {
-  const wasOpen = expandedId === id;
-  collapse();
-  if (!wasOpen) expandedId = id;
+// Finishes every edit (a blank title deletes) and closes the "add sub-task" line.
+function finishEdits() {
+  if (editingId) { const id = editingId; editingId = null; commitTitle(id); }
+  if (activeId) { const id = activeId; activeId = null; commitTitle(id); }
+  finishAddingChild();
+  scheduleSync();
+}
+
+function activate(id) {
+  finishEdits();
+  activeId = id;
+  focusAfter = { edit: id };
   render();
 }
 
-// ✎: edit a to-do's title in place, cursor at the end.
-function editTitle(id) {
+function editChild(id) {
+  finishEdits();
   editingId = id;
   focusAfter = { edit: id };
   render();
 }
 
-// Closes the open to-do and finishes edits inside it (a blank title deletes it).
-function collapse() {
-  if (editingId) { const id = editingId; editingId = null; commitTitle(id); }
-  if (expandedId) { const id = expandedId; expandedId = null; commitTitle(id); }
-  scheduleSync();
+function startAddingChild(id) {
+  finishEdits();
+  addingChildTo = id;
+  focusAfter = { childAdd: id };
+  render();
+}
+
+// Closes the "add sub-task" line, adding what was typed in it.
+function finishAddingChild() {
+  if (!addingChildTo) return;
+  const parent = addingChildTo;
+  addingChildTo = null;
+  const ta = $('main').querySelector(`textarea[data-child-add="${parent}"]`);
+  if (ta && ta.value.trim()) {
+    addChild(ta.value, parent);
+    ta.value = '';
+    scheduleSync();
+  }
 }
 
 // Typing into a title. Return calls onReturn instead of adding a line break.
@@ -437,7 +489,7 @@ function titleArea(item, onReturn, onBlur) {
   const ta = h('textarea', {
     rows: 1,
     'data-edit': item.id,
-    enterkeyhint: 'next',
+    enterkeyhint: 'done',
     oninput: (e) => {
       const t = e.target;
       const value = t.value.replace(/\n/g, ' ');
@@ -454,64 +506,53 @@ function titleArea(item, onReturn, onBlur) {
 }
 
 function row(item) {
-  const open = expandedId === item.id;
-  const block = h('div', { class: `block${open ? ' open' : ''}`, 'data-block': item.id });
-  const el = h('div', { class: `row${item.done ? ' done' : ''}` });
+  const active = activeId === item.id;
+  const block = h('div', { class: 'block' });
+  const el = h('div', { class: `row${item.done ? ' done' : ''}`, 'data-row': item.id });
   el.append(h('button', {
     class: 'check',
     'aria-label': item.done ? '완료 취소' : '완료',
-    onpointerdown: open ? keep : null,
-    onmousedown: open ? keep : null,
+    onpointerdown: active ? keep : null,
+    onmousedown: active ? keep : null,
     onclick: () => act(() => update(item.id, (i) => { i.done = !i.done; })),
   }, h('span')));
 
-  if (editingId === item.id) {
-    el.append(titleArea(item, (t) => t.blur(), () => {
-      if (editingId !== item.id) return;
-      editingId = null;
-      commitTitle(item.id);
-      scheduleSync();
-      setTimeout(requestRender, 0);
-    }));
-  } else {
-    el.append(h('div', { class: 'text', text: item.title, onclick: () => toggleItem(item.id) }));
-  }
-
-  if (open) {
+  if (active) {
+    el.append(titleArea(item,
+      () => { finishEdits(); document.activeElement?.blur(); render(); },
+      () => { // the keyboard went away: keep the edit, leave the tools up
+        if (rendering || activeId !== item.id) return;
+        commitTitle(item.id);
+        scheduleSync();
+        if (!live(state.items[item.id])) { activeId = null; setTimeout(requestRender, 0); }
+      }));
     el.append(h('div', { class: 'tools' },
       h('button', {
         class: item.starred ? 'starred' : '',
-        'aria-label': '중요', onpointerdown: keep, onmousedown: keep,
-        onclick: (e) => {
-          update(item.id, (i) => { i.starred = !i.starred; });
-          const on = state.items[item.id].starred;
-          e.currentTarget.textContent = on ? '★' : '☆';
-          e.currentTarget.classList.toggle('starred', on);
-          scheduleSync();
-        },
+        'aria-label': item.starred ? '중요 표시 빼기' : '중요 표시 (맨 위로)',
+        onpointerdown: keep, onmousedown: keep,
+        onclick: () => act(() => toggleStar(item.id)),
       }, item.starred ? '★' : '☆'),
       item.done ? null : h('button', {
         'aria-label': POSTPONE_LABEL[scopeOf(item)], onpointerdown: keep, onmousedown: keep,
-        onclick: () => { collapse(); act(() => postpone(item.id)); },
+        onclick: () => { finishEdits(); act(() => postpone(item.id)); },
       }, '→'),
       moveButton(item),
       h('button', {
-        'aria-label': '이름 바꾸기', onpointerdown: keep, onmousedown: keep,
-        onclick: () => editTitle(item.id),
-      }, '✎'),
+        'aria-label': '하위 할 일 추가', onpointerdown: keep, onmousedown: keep,
+        onclick: () => startAddingChild(item.id),
+      }, '↳'),
       h('button', {
         'aria-label': '삭제', onpointerdown: keep, onmousedown: keep,
-        onclick: () => { expandedId = null; editingId = null; act(() => removeItem(item.id)); },
+        onclick: () => { activeId = null; act(() => removeItem(item.id)); },
       }, '×')));
-    block.append(el);
-    for (const child of childrenOf(item.id)) block.append(childRow(child));
-    block.append(childAddRow(item.id));
   } else {
-    const kids = childrenOf(item.id);
-    if (kids.length) el.append(h('span', { class: 'count', text: `${kids.filter((k) => k.done).length}/${kids.length}` }));
+    el.append(h('div', { class: 'text', text: item.title, onclick: () => activate(item.id) }));
     if (item.starred) el.append(h('span', { class: 'star', text: '★' }));
-    block.append(el);
   }
+  block.append(el);
+  for (const child of childrenOf(item.id)) block.append(childRow(child));
+  if (addingChildTo === item.id) block.append(childAddRow(item.id));
   return block;
 }
 
@@ -524,29 +565,25 @@ function childRow(child) {
     onclick: () => act(() => update(child.id, (i) => { i.done = !i.done; })),
   }, h('span')));
   if (editingId === child.id) {
-    el.append(titleArea(child,
-      () => $('main').querySelector(`textarea[data-child-add="${child.parent}"]`)?.focus(),
-      () => {
-        if (editingId !== child.id) return;
-        editingId = null;
-        commitTitle(child.id);
-        scheduleSync();
-        setTimeout(requestRender, 0);
-      }));
+    el.append(titleArea(child, (t) => t.blur(), () => {
+      if (rendering || editingId !== child.id) return;
+      editingId = null;
+      commitTitle(child.id);
+      scheduleSync();
+      setTimeout(requestRender, 0);
+    }));
     el.append(h('div', { class: 'tools' }, h('button', {
       'aria-label': '삭제', onpointerdown: keep, onmousedown: keep,
       onclick: () => { editingId = null; act(() => removeItem(child.id)); },
     }, '×')));
   } else {
-    el.append(h('div', {
-      class: 'text',
-      text: child.title,
-      onclick: () => { editingId = child.id; focusAfter = { edit: child.id }; render(); },
-    }));
+    el.append(h('div', { class: 'text', text: child.title, onclick: () => editChild(child.id) }));
   }
   return el;
 }
 
+// Return adds the sub-task and stays for the next one; Return on an empty line,
+// tapping elsewhere or closing the keyboard closes the line (keeping what was typed).
 function childAddRow(parentId) {
   const ta = h('textarea', {
     rows: 1,
@@ -559,27 +596,24 @@ function childAddRow(parentId) {
       if (!t.value.includes('\n')) { fit(t); return; }
       const text = t.value.replace(/\n/g, '');
       t.value = '';
-      if (text.trim()) { // Return adds the sub-task and stays here for the next one
+      if (text.trim()) {
         addChild(text, parentId);
         scheduleSync();
         focusAfter = { childAdd: parentId };
-      } else {           // Return on an empty line closes the to-do
+      } else {
+        addingChildTo = null;
         t.blur();
-        collapse();
       }
       render();
     },
-    onblur: (e) => {
-      const t = e.target;
-      if (!t.value.trim()) return;
-      addChild(t.value, parentId);
-      t.value = '';
-      scheduleSync();
+    onblur: () => {
+      if (rendering || addingChildTo !== parentId) return;
+      finishAddingChild();
       renderPending = true;
       setTimeout(() => { if (renderPending) requestRender(); }, 0);
     },
   });
-  return h('div', { class: 'row child-add' }, ta);
+  return h('div', { class: 'row child-add', 'data-child-add-row': parentId }, ta);
 }
 
 // The list a to-do lives in ("일", "주" or "월"). Tapping it opens the system picker
@@ -591,7 +625,7 @@ function moveButton(item) {
     onchange: (e) => {
       const scope = e.target.value;
       if (scope === current) return;
-      collapse();
+      finishEdits();
       act(() => changeScope(item.id, scope));
     },
   }, ...SCOPES.map((s) => h('option', { value: s, selected: s === current }, `${SCOPE_LABEL[s]}간 목록`)));

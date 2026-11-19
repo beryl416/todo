@@ -31,6 +31,23 @@ struct EditingTests {
         #expect(titles(s.open(in: dayOf(mon))) == ["a", "b"])
     }
 
+    @Test func starringMovesToTheTopAndUnstarringStays() {
+        var s = TodoState()
+        s.add("a", in: dayOf(mon), now: 1)
+        s.add("b", in: dayOf(mon), now: 2)
+        let c = s.add("c", in: dayOf(mon), now: 3)!
+        let d = s.add("d", in: dayOf(mon), now: 4)!
+        s.toggleDone(d.id, now: 5)
+        s.toggleStar(c.id, now: 6)
+        #expect(titles(s.open(in: dayOf(mon))) == ["c", "a", "b"])
+        #expect(s.item(c.id)!.starred)
+        s.toggleStar(c.id, now: 7)
+        #expect(titles(s.open(in: dayOf(mon))) == ["c", "a", "b"])
+        #expect(!s.item(c.id)!.starred)
+        s.toggleStar(d.id, now: 8) // a finished one stays with the finished
+        #expect(titles(s.done(in: dayOf(mon))) == ["d"])
+    }
+
     @Test func clearingTheTitleDeletes() {
         var s = TodoState()
         let a = s.add("a", in: dayOf(mon), now: 1)!

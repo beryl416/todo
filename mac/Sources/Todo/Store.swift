@@ -22,7 +22,7 @@ enum ViewMode: String, CaseIterable, Identifiable {
 }
 
 /// What has keyboard focus: the "add" line, a to-do or sub-task being edited,
-/// or the "add sub-task" line of an open to-do.
+/// or the "add sub-task" line under a to-do.
 enum Focus: Hashable {
     case add
     case item(UUID)
@@ -41,8 +41,10 @@ final class Store {
     private(set) var today: Day
     /// The to-do or sub-task whose title is being edited.
     private(set) var editingID: UUID?
-    /// The to-do opened to show its sub-tasks.
-    private(set) var expandedID: UUID?
+    /// The to-do showing an "add sub-task" line (opened from its right-click menu).
+    private(set) var addingChildTo: UUID?
+    /// What is typed in that line.
+    var childDraft = ""
     /// The to-do being dragged.
     var dragging: UUID?
     private(set) var online = true
@@ -100,32 +102,54 @@ final class Store {
     func toggleStar(_ id: UUID) { change { $0.toggleStar(id, now: $1) } }
     func delete(_ id: UUID) {
         if editingID == id { editingID = nil }
-        if expandedID == id { expandedID = nil }
+        if addingChildTo == id { cancelAddingChild() }
         change { $0.delete(id, now: $1) }
     }
 
-    func addChild(_ title: String, to parent: UUID) { change { $0.addChild(title, to: parent, now: $1) } }
-
     func changeScope(_ id: UUID, to scope: Scope) {
-        if expandedID == id { collapse() }
+        finishAddingChild()
         let today = today
         change { $0.changeScope(id, to: scope, today: today, now: $1) }
     }
 
-    /// Clicking a to-do opens it to show its sub-tasks; clicking it again closes it.
-    func toggle(_ id: UUID) {
-        if expandedID == id {
-            collapse()
-        } else {
-            collapse()
-            expandedID = id
-        }
+    // MARK: - Adding sub-tasks
+
+    /// Opens an "add sub-task" line under a to-do.
+    func startAddingChild(to parent: UUID) {
+        guard let item = state.item(parent), item.parent == nil else { return }
+        if let id = editingID { commitEditing(id) }
+        finishAddingChild()
+        addingChildTo = parent
     }
 
-    /// Closes the open to-do and finishes any edit inside it.
-    func collapse() {
-        if let id = editingID { commitEditing(id) }
-        expandedID = nil
+    /// Return in the line: adds the sub-task and keeps the line for the next one.
+    /// Returns false when the line was empty, which closes it.
+    func submitChild() -> Bool {
+        guard let parent = addingChildTo else { return false }
+        let title = childDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        childDraft = ""
+        guard !title.isEmpty else {
+            addingChildTo = nil
+            return false
+        }
+        change { $0.addChild(title, to: parent, now: $1) }
+        return true
+    }
+
+    /// Leaving the line: keeps what was typed, then closes it.
+    /// With `only`, does nothing unless that to-do's line is the one open.
+    func finishAddingChild(only: UUID? = nil) {
+        guard let parent = addingChildTo, only == nil || only == parent else { return }
+        let title = childDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        childDraft = ""
+        addingChildTo = nil
+        if !title.isEmpty { change { $0.addChild(title, to: parent, now: $1) } }
+    }
+
+    /// Escape: closes the line without adding anything.
+    func cancelAddingChild() {
+        childDraft = ""
+        addingChildTo = nil
     }
     func move(_ id: UUID, to target: UUID) { change { $0.move(id, to: target, now: $1) } }
     func postpone(_ id: UUID) {
@@ -134,6 +158,7 @@ final class Store {
     }
 
     func beginEditing(_ id: UUID) {
+        finishAddingChild()
         if let current = editingID, current != id { commitEditing(current) }
         editingID = id
     }

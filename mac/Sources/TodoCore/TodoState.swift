@@ -89,8 +89,19 @@ public struct TodoState: Codable, Equatable, Sendable {
         update(id, now) { $0.done.toggle() }
     }
 
+    /// Starring a to-do also moves it to the top of its list (unfinished or finished);
+    /// un-starring leaves it where it is.
     public mutating func toggleStar(_ id: UUID, now: Int64) {
-        update(id, now) { $0.starred.toggle() }
+        guard let current = item(id) else { return }
+        guard !current.starred, current.parent == nil else {
+            update(id, now) { $0.starred.toggle() }
+            return
+        }
+        let first = (current.done ? done(in: current.list) : open(in: current.list)).first { $0.id != id }
+        update(id, now) {
+            $0.starred = true
+            if let first, first.position <= $0.position { $0.position = first.position - 1 }
+        }
     }
 
     /// Deletes a to-do, and its sub-tasks with it.

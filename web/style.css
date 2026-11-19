@@ -139,11 +139,10 @@ textarea::placeholder { color: var(--faint); }
 .add { padding-left: 32px; }
 .add textarea { display: block; }
 
-/* An open to-do: sub-tasks line their checkboxes up with the parent's title. */
+/* Sub-tasks line their checkboxes up with the parent's title. */
 .row.child { padding: 6px 0 6px 32px; min-height: 36px; }
 .row.child-add { padding: 6px 0 6px 32px; min-height: 36px; } /* starts where sub-task checkboxes start */
-.count { flex: none; margin-left: 8px; font-size: 12px; line-height: 22px; color: var(--faint); }
-/* The list switch in an open to-do's tools: a letter over an invisible native picker. */
+/* The list switch in a to-do's tools: a letter over an invisible native picker. */
 .move { position: relative; width: 34px; height: 34px; display: grid; place-items: center; color: var(--soft); font-size: 14px; border-radius: 8px; }
 .move select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; font-size: 16px; }
 
