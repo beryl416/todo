@@ -269,10 +269,6 @@ function titleText() {
   }
   return `${nums(view.anchor)[0]}년 ${m}월`;
 }
-function currentTag() {
-  if (startOf(view.mode, view.anchor) !== startOf(view.mode, view.today)) return '';
-  return { day: '오늘', week: '이번 주', month: '이번 달' }[view.mode];
-}
 
 // Re-rendering replaces the list, so wait while someone is typing, and while a
 // finger or mouse is down (redrawing mid-tap would swallow the tap).
@@ -309,7 +305,6 @@ function render() {
   }
   document.querySelector('.top').hidden = false;
   $('title').textContent = titleText();
-  $('today-tag').textContent = currentTag();
   for (const b of document.querySelectorAll('.modes button')) b.classList.toggle('on', b.dataset.mode === view.mode);
   const dark = document.documentElement.dataset.theme === 'dark';
   $('theme').innerHTML = dark ? ICON_SUN : ICON_MOON;

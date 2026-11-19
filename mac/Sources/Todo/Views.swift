@@ -3,11 +3,10 @@ import SwiftUI
 import TodoCore
 
 enum Theme {
-    // Menlo keeps the typewriter look for Latin text while Hangul falls back to its
-    // natural width (the system monospaced design spreads Hangul syllables apart).
-    static let body = Font.custom("Menlo", size: 13)
-    static let bold = Font.custom("Menlo-Bold", size: 13)
-    static let small = Font.custom("Menlo", size: 11)
+    // Hahmlet (bundled in Resources/Fonts, SIL Open Font License).
+    static let body = Font.custom("Hahmlet-Regular", size: 14)
+    static let bold = Font.custom("Hahmlet-Bold", size: 14)
+    static let small = Font.custom("Hahmlet-Regular", size: 12)
     /// Space left of the text where the checkbox sits.
     static let gutter: CGFloat = 29
     static let side: CGFloat = 16
@@ -71,9 +70,6 @@ struct Header: View {
                 .padding(.leading, Theme.gutter)
                 .onTapGesture { store.goToToday() }
                 .help("오늘로")
-            if let tag = store.currentTag {
-                Text("  \(tag)").font(Theme.small).foregroundStyle(Theme.faint).lineLimit(1)
-            }
             Spacer(minLength: 8)
             IconButton(symbol: "chevron.left", help: "이전 (⌘[)") { store.step(-1) }
             IconButton(symbol: "chevron.right", help: "다음 (⌘])") { store.step(1) }
@@ -274,18 +270,32 @@ struct AddRow: View {
     }
 }
 
-/// An empty box, or a filled one when done.
+/// A sharp square: a thin outline, or solid ink with a check cut out of it when done.
 struct CheckBox: View {
     let checked: Bool
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 3)
-            .fill(checked ? Color.secondary.opacity(0.6) : Color.clear)
-            .overlay(
-                RoundedRectangle(cornerRadius: 3)
-                    .strokeBorder(Color.secondary.opacity(0.6), lineWidth: 1)
-            )
-            .frame(width: 13, height: 13)
+        ZStack {
+            if checked {
+                RoundedRectangle(cornerRadius: 1.5).fill(Color.primary)
+                CheckMark()
+                    .stroke(Theme.background, style: StrokeStyle(lineWidth: 1.6, lineCap: .square, lineJoin: .miter))
+                    .padding(EdgeInsets(top: 3.5, leading: 3, bottom: 3.5, trailing: 3))
+            } else {
+                RoundedRectangle(cornerRadius: 1.5).strokeBorder(Color.primary.opacity(0.55), lineWidth: 1)
+            }
+        }
+        .frame(width: 13, height: 13)
+    }
+}
+
+struct CheckMark: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX, y: r.minY + r.height * 0.55))
+        p.addLine(to: CGPoint(x: r.minX + r.width * 0.36, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+        return p
     }
 }
 

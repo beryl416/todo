@@ -152,16 +152,6 @@ final class Store {
         }
     }
 
-    /// "오늘", "이번 주" or "이번 달" when the list on screen is the current one.
-    var currentTag: String? {
-        guard list == ListKey(mode.scope, containing: today) else { return nil }
-        switch mode {
-        case .day: return "오늘"
-        case .week: return "이번 주"
-        case .month: return "이번 달"
-        }
-    }
-
     var postponeLabel: String {
         switch mode {
         case .day: return "내일로 미루기"
