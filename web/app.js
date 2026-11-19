@@ -410,10 +410,17 @@ const POSTPONE_LABEL = { day: '내일로', week: '다음 주로', month: '다음
 const SCOPE_LABEL = { day: '일', week: '주', month: '월' };
 const keep = (e) => e.preventDefault(); // tapping this must not take the cursor away
 
-// Opens a to-do: its title becomes editable and its sub-tasks appear below.
-function openItem(id) {
+// Tapping a to-do opens it in place to show its sub-tasks; tapping it again closes it.
+function toggleItem(id) {
+  const wasOpen = expandedId === id;
   collapse();
-  expandedId = id;
+  if (!wasOpen) expandedId = id;
+  render();
+}
+
+// ✎: edit a to-do's title in place, cursor at the end.
+function editTitle(id) {
+  editingId = id;
   focusAfter = { edit: id };
   render();
 }
@@ -458,14 +465,19 @@ function row(item) {
     onclick: () => act(() => update(item.id, (i) => { i.done = !i.done; })),
   }, h('span')));
 
+  if (editingId === item.id) {
+    el.append(titleArea(item, (t) => t.blur(), () => {
+      if (editingId !== item.id) return;
+      editingId = null;
+      commitTitle(item.id);
+      scheduleSync();
+      setTimeout(requestRender, 0);
+    }));
+  } else {
+    el.append(h('div', { class: 'text', text: item.title, onclick: () => toggleItem(item.id) }));
+  }
+
   if (open) {
-    el.append(titleArea(item,
-      () => block.querySelector('textarea[data-child-add]')?.focus(),
-      () => { // keep a blank title until the to-do closes; trim a real one now
-        const cur = state.items[item.id];
-        if (cur && cur.title.trim() && cur.title.trim() !== cur.title) commitTitle(item.id);
-        scheduleSync();
-      }));
     el.append(h('div', { class: 'tools' },
       h('button', {
         class: item.starred ? 'starred' : '',
@@ -484,6 +496,10 @@ function row(item) {
       }, '→'),
       moveButton(item),
       h('button', {
+        'aria-label': '이름 바꾸기', onpointerdown: keep, onmousedown: keep,
+        onclick: () => editTitle(item.id),
+      }, '✎'),
+      h('button', {
         'aria-label': '삭제', onpointerdown: keep, onmousedown: keep,
         onclick: () => { expandedId = null; editingId = null; act(() => removeItem(item.id)); },
       }, '×')));
@@ -491,7 +507,6 @@ function row(item) {
     for (const child of childrenOf(item.id)) block.append(childRow(child));
     block.append(childAddRow(item.id));
   } else {
-    el.append(h('div', { class: 'text', text: item.title, onclick: () => openItem(item.id) }));
     const kids = childrenOf(item.id);
     if (kids.length) el.append(h('span', { class: 'count', text: `${kids.filter((k) => k.done).length}/${kids.length}` }));
     if (item.starred) el.append(h('span', { class: 'star', text: '★' }));

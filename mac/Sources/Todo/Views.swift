@@ -59,11 +59,18 @@ struct ContentView: View {
         }
         .onChange(of: focus) { old, new in
             if case .item(let id)? = old, new != .item(id) { store.commitEditing(id) }
-            if let open = store.expandedID, !store.focus(new, isInside: open) { store.collapse() }
         }
         .onChange(of: store.editingID) { _, id in
             guard let id else { return }
-            DispatchQueue.main.async { focus = .item(id) }
+            DispatchQueue.main.async {
+                focus = .item(id)
+                // macOS selects the whole title on focus; put the cursor at the end instead.
+                DispatchQueue.main.async {
+                    if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
+                        editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+                    }
+                }
+            }
         }
         .onChange(of: store.addRequest) { _, _ in
             DispatchQueue.main.async { focus = .add }
@@ -193,9 +200,9 @@ func titleBinding(_ store: Store, _ id: UUID, onReturn: @escaping () -> Void) ->
     )
 }
 
-/// A to-do. Clicking its title opens it: the title becomes editable and its
-/// sub-tasks and an "add sub-task" line appear below. Moving it to the day, week
-/// or month list is in its right-click menu.
+/// A to-do. Clicking its title opens it in place to show its sub-tasks and an
+/// "add sub-task" line; clicking again closes it. Renaming and moving it to the
+/// day, week or month list are in its right-click menu.
 struct TodoRow: View {
     let item: TodoItem
     var focus: FocusState<Focus?>.Binding
@@ -222,11 +229,11 @@ struct TodoRow: View {
                 .contentShape(Rectangle())
                 .onTapGesture { store.toggleDone(item.id) }
             if editing {
-                TextField("", text: titleBinding(store, item.id) { focus.wrappedValue = .childAdd(item.id) }, axis: .vertical)
+                TextField("", text: titleBinding(store, item.id) { focus.wrappedValue = nil }, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(Theme.body)
                     .focused(focus, equals: .item(item.id))
-                    .onSubmit { focus.wrappedValue = .childAdd(item.id) }
+                    .onSubmit { focus.wrappedValue = nil }
                     .onExitCommand { focus.wrappedValue = nil }
             } else {
                 Text(item.title)
@@ -236,7 +243,7 @@ struct TodoRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .contentShape(Rectangle())
-                    .onTapGesture { expanded ? store.beginEditing(item.id) : store.open(item.id) }
+                    .onTapGesture { store.toggle(item.id) }
             }
             let progress = store.state.progress(of: item.id)
             if !expanded && progress.total > 0 {
@@ -246,6 +253,15 @@ struct TodoRow: View {
                     .frame(height: Theme.lineHeight)
                     .padding(.leading, 8)
             }
+            Image(systemName: "pencil")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.secondary)
+                .frame(width: 20, height: Theme.lineHeight, alignment: .trailing)
+                .opacity(hovering && !editing ? 1 : 0)
+                .contentShape(Rectangle())
+                .onTapGesture { store.beginEditing(item.id) }
+                .help("이름 바꾸기")
+                .padding(.leading, 8)
             Image(systemName: item.starred ? "star.fill" : "star")
                 .font(.system(size: 11))
                 .foregroundStyle(item.starred ? Theme.star : Color.secondary)
@@ -259,6 +275,7 @@ struct TodoRow: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .contextMenu {
+            Button("이름 바꾸기") { store.beginEditing(item.id) }
             Button(item.starred ? "중요 표시 빼기" : "중요 표시") { store.toggleStar(item.id) }
             if !item.done { Button(store.postponeLabel) { store.postpone(item.id) } }
             ForEach(Scope.allCases.filter { $0 != item.scope }, id: \.self) { scope in

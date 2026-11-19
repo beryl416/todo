@@ -112,26 +112,20 @@ final class Store {
         change { $0.changeScope(id, to: scope, today: today, now: $1) }
     }
 
-    /// Opens a to-do: shows its sub-tasks and puts its title into editing.
-    func open(_ id: UUID) {
-        if let current = expandedID, current != id { collapse() }
-        expandedID = id
-        beginEditing(id)
+    /// Clicking a to-do opens it to show its sub-tasks; clicking it again closes it.
+    func toggle(_ id: UUID) {
+        if expandedID == id {
+            collapse()
+        } else {
+            collapse()
+            expandedID = id
+        }
     }
 
     /// Closes the open to-do and finishes any edit inside it.
     func collapse() {
         if let id = editingID { commitEditing(id) }
         expandedID = nil
-    }
-
-    /// Whether keyboard focus is still inside the open to-do (its title, a sub-task, or the add line).
-    func focus(_ focus: Focus?, isInside parent: UUID) -> Bool {
-        switch focus {
-        case .item(let id)?: return id == parent || state.item(id)?.parent == parent
-        case .childAdd(let id)?: return id == parent
-        default: return false
-        }
     }
     func move(_ id: UUID, to target: UUID) { change { $0.move(id, to: target, now: $1) } }
     func postpone(_ id: UUID) {
