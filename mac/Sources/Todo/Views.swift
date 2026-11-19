@@ -120,7 +120,7 @@ struct Header: View {
                     .font(Theme.mode)
                     .foregroundStyle(store.mode == mode ? Color.primary : Theme.faint)
                     .frame(height: 20)
-                    .padding(.leading, 14) // the gap is part of the click area; M ends at the edge
+                    .padding(.leading, 14) // the gap is part of the click area; m ends at the edge
                     .help(mode == .day ? "일간 (⌘1)" : mode == .week ? "주간 (⌘2)" : "월간 (⌘3)")
                     .contentShape(Rectangle())
                     .onTapGesture { store.mode = mode }
