@@ -5,6 +5,7 @@
   --faint: rgba(60, 60, 67, 0.36);
   --box: rgba(60, 60, 67, 0.42);
   --edge: rgba(29, 29, 31, 0.55);
+  --star: #f5a623;
   --hover: rgba(0, 0, 0, 0.045);
   --font: Menlo, ui-monospace, "SF Mono", monospace;
   color-scheme: light;
@@ -17,6 +18,7 @@
   --faint: rgba(235, 235, 245, 0.32);
   --box: rgba(235, 235, 245, 0.4);
   --edge: rgba(237, 237, 237, 0.5);
+  --star: #ffb93d;
   --hover: rgba(255, 255, 255, 0.06);
   color-scheme: dark;
 }
@@ -62,7 +64,7 @@ button { cursor: pointer; touch-action: manipulation; }
   margin-bottom: 14px;
 }
 .title {
-  margin: 0 0 0 32px;
+  margin: 0;
   font-size: 16px;
   font-weight: 700;
   white-space: nowrap;
@@ -119,7 +121,8 @@ button { cursor: pointer; touch-action: manipulation; }
   cursor: text;
 }
 .done .text { color: var(--faint); text-decoration: line-through; }
-.star { flex: none; width: 28px; text-align: right; color: var(--soft); font-size: 17px; line-height: 22px; }
+.star { flex: none; width: 28px; text-align: right; color: var(--star); font-size: 17px; line-height: 22px; }
+.tools button.starred { color: var(--star); }
 
 textarea {
   flex: 1;
@@ -135,6 +138,14 @@ textarea {
 textarea::placeholder { color: var(--faint); }
 .add { padding-left: 32px; }
 .add textarea { display: block; }
+
+/* An open to-do: sub-tasks line their checkboxes up with the parent's title. */
+.row.child { padding: 6px 0 6px 32px; min-height: 36px; }
+.row.child-add { padding: 6px 0 6px 64px; min-height: 36px; }
+.count { flex: none; margin-left: 8px; font-size: 12px; line-height: 22px; color: var(--faint); }
+.scopes { display: flex; gap: 2px; padding: 0 0 8px 58px; font-size: 13px; color: var(--faint); }
+.scopes button { min-width: 28px; height: 28px; border-radius: 8px; }
+.scopes button.on { color: var(--ink); }
 
 .tools { flex: none; display: flex; gap: 2px; margin: -6px -6px -6px 6px; }
 .tools button { width: 34px; height: 34px; border-radius: 8px; color: var(--soft); font-size: 15px; }

@@ -21,10 +21,12 @@ enum ViewMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// What has keyboard focus: the "add" line, or a to-do being edited.
+/// What has keyboard focus: the "add" line, a to-do or sub-task being edited,
+/// or the "add sub-task" line of an open to-do.
 enum Focus: Hashable {
     case add
     case item(UUID)
+    case childAdd(UUID)
 }
 
 @MainActor
@@ -37,8 +39,10 @@ final class Store {
     /// The day the current view is built around.
     var anchor: Day
     private(set) var today: Day
-    /// The to-do whose title is being edited.
+    /// The to-do or sub-task whose title is being edited.
     private(set) var editingID: UUID?
+    /// The to-do opened to show its sub-tasks.
+    private(set) var expandedID: UUID?
     /// The to-do being dragged.
     var dragging: UUID?
     private(set) var online = true
@@ -96,7 +100,38 @@ final class Store {
     func toggleStar(_ id: UUID) { change { $0.toggleStar(id, now: $1) } }
     func delete(_ id: UUID) {
         if editingID == id { editingID = nil }
+        if expandedID == id { expandedID = nil }
         change { $0.delete(id, now: $1) }
+    }
+
+    func addChild(_ title: String, to parent: UUID) { change { $0.addChild(title, to: parent, now: $1) } }
+
+    func changeScope(_ id: UUID, to scope: Scope) {
+        if expandedID == id { collapse() }
+        let today = today
+        change { $0.changeScope(id, to: scope, today: today, now: $1) }
+    }
+
+    /// Opens a to-do: shows its sub-tasks and puts its title into editing.
+    func open(_ id: UUID) {
+        if let current = expandedID, current != id { collapse() }
+        expandedID = id
+        beginEditing(id)
+    }
+
+    /// Closes the open to-do and finishes any edit inside it.
+    func collapse() {
+        if let id = editingID { commitEditing(id) }
+        expandedID = nil
+    }
+
+    /// Whether keyboard focus is still inside the open to-do (its title, a sub-task, or the add line).
+    func focus(_ focus: Focus?, isInside parent: UUID) -> Bool {
+        switch focus {
+        case .item(let id)?: return id == parent || state.item(id)?.parent == parent
+        case .childAdd(let id)?: return id == parent
+        default: return false
+        }
     }
     func move(_ id: UUID, to target: UUID) { change { $0.move(id, to: target, now: $1) } }
     func postpone(_ id: UUID) {
@@ -149,6 +184,14 @@ final class Store {
             return "\(yearPrefix(Day(year: w.year, month: w.month, day: 1)))\(w.month)월 \(ordinal) 주"
         case .month:
             return "\(anchor.year)년 \(anchor.month)월"
+        }
+    }
+
+    static func moveLabel(_ scope: Scope) -> String {
+        switch scope {
+        case .day: return "일간으로 옮기기"
+        case .week: return "주간으로 옮기기"
+        case .month: return "월간으로 옮기기"
         }
     }
 

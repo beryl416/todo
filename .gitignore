@@ -2,3 +2,4 @@
 mac/.build/
 mac/.swiftpm/
 build/
+.superpowers/

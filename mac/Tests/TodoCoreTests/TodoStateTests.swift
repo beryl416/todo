@@ -139,6 +139,36 @@ struct ListTests {
         #expect(s.item(m.id)?.day == Day(year: 2026, month: 12, day: 1))
     }
 
+    @Test func movesBetweenDayWeekAndMonth() {
+        var s = TodoState()
+        let a = s.add("a", in: dayOf(wed), now: 1)!
+        s.changeScope(a.id, to: .week, today: wed, now: 2)
+        #expect(titles(s.open(in: weekOf(wed))) == ["a"])
+        #expect(s.open(in: dayOf(wed)).isEmpty)
+        s.changeScope(a.id, to: .month, today: wed, now: 3)
+        #expect(titles(s.open(in: monthOf(wed))) == ["a"])
+        s.changeScope(a.id, to: .day, today: wed, now: 4)      // this month holds today → today
+        #expect(titles(s.open(in: dayOf(wed))) == ["a"])
+    }
+
+    @Test func movingANonCurrentWeekToDayUsesItsFirstDay() {
+        var s = TodoState()
+        let nextWeek = mon.adding(days: 7)
+        let w = s.add("w", in: weekOf(nextWeek), now: 1)!
+        s.changeScope(w.id, to: .day, today: wed, now: 2)
+        #expect(s.item(w.id)?.day == nextWeek)
+        #expect(s.item(w.id)?.scope == .day)
+    }
+
+    @Test func subtasksComeAlongWhenTheScopeChanges() {
+        var s = TodoState()
+        let p = s.add("p", in: dayOf(wed), now: 1)!
+        s.addChild("c", to: p.id, now: 2)
+        s.changeScope(p.id, to: .week, today: wed, now: 3)
+        #expect(titles(s.open(in: weekOf(wed))) == ["p"])
+        #expect(titles(s.children(of: p.id)) == ["c"])
+    }
+
     @Test func toleratesAWeeklyItemStoredUnderAMidweekDay() {
         // An older app version could save a weekly to-do under a Thursday.
         var s = TodoState()
@@ -152,6 +182,67 @@ struct ListTests {
         let json = #"{"id":"6733bdea-7a80-4402-b26f-a98936983971","title":"x","day":"2026-11-19","updated_at":1}"#
         let item = try JSONDecoder().decode(TodoItem.self, from: Data(json.utf8))
         #expect(item.scope == .day)
+    }
+}
+
+struct SubtaskTests {
+    @Test func subtasksLiveUnderTheirParentNotInTheList() {
+        var s = TodoState()
+        let p = s.add("parent", in: dayOf(mon), now: 1)!
+        s.addChild("one", to: p.id, now: 2)
+        s.addChild("two", to: p.id, now: 3)
+        #expect(titles(s.open(in: dayOf(mon))) == ["parent"])
+        #expect(titles(s.children(of: p.id)) == ["one", "two"])
+    }
+
+    @Test func checkingASubtaskKeepsItsPlaceAndCountsProgress() {
+        var s = TodoState()
+        let p = s.add("parent", in: dayOf(mon), now: 1)!
+        let one = s.addChild("one", to: p.id, now: 2)!
+        s.addChild("two", to: p.id, now: 3)
+        s.toggleDone(one.id, now: 4)
+        #expect(titles(s.children(of: p.id)) == ["one", "two"])
+        #expect(s.progress(of: p.id) == (1, 2))
+        #expect(s.item(p.id)?.done == false) // the parent is not checked for you
+    }
+
+    @Test func noSubtasksOfSubtasks() {
+        var s = TodoState()
+        let p = s.add("parent", in: dayOf(mon), now: 1)!
+        let one = s.addChild("one", to: p.id, now: 2)!
+        #expect(s.addChild("deeper", to: one.id, now: 3) == nil)
+        #expect(s.addChild("   ", to: p.id, now: 4) == nil)
+    }
+
+    @Test func deletingTheParentDeletesItsSubtasks() {
+        var s = TodoState()
+        let p = s.add("parent", in: dayOf(mon), now: 1)!
+        let one = s.addChild("one", to: p.id, now: 2)!
+        s.markPushed(s.pendingPush())
+        s.delete(p.id, now: 3)
+        #expect(s.item(one.id) == nil)
+        #expect(Set(s.pendingPush().map(\.id)) == [p.id, one.id])
+        #expect(s.pendingPush().allSatisfy { $0.deleted })
+    }
+
+    @Test func subtasksFollowTheirParentAndAreNotRolledOnTheirOwn() {
+        var s = TodoState()
+        let p = s.add("parent", in: dayOf(mon), now: 1)!
+        s.addChild("one", to: p.id, now: 2)
+        #expect(s.rollOver(to: wed, now: 3) == 1)   // only the parent moves
+        #expect(titles(s.open(in: dayOf(wed))) == ["parent"])
+        #expect(titles(s.children(of: p.id)) == ["one"])
+    }
+
+    @Test func parentFieldRoundTrips() throws {
+        var s = TodoState()
+        let p = s.add("parent", in: dayOf(mon), now: 1)!
+        let one = s.addChild("one", to: p.id, now: 2)!
+        let data = try JSONEncoder().encode(one)
+        let back = try JSONDecoder().decode(TodoItem.self, from: data)
+        #expect(back.parent == p.id)
+        let top = try JSONDecoder().decode(TodoItem.self, from: JSONEncoder().encode(p))
+        #expect(top.parent == nil)
     }
 }
 

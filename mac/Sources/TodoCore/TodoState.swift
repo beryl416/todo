@@ -26,11 +26,22 @@ public struct TodoState: Codable, Equatable, Sendable {
     }
 
     public func open(in list: ListKey) -> [TodoItem] {
-        items.values.filter { !$0.deleted && !$0.done && $0.list == list }.sorted(by: Self.inOrder)
+        items.values.filter { !$0.deleted && $0.parent == nil && !$0.done && $0.list == list }.sorted(by: Self.inOrder)
     }
 
     public func done(in list: ListKey) -> [TodoItem] {
-        items.values.filter { !$0.deleted && $0.done && $0.list == list }.sorted(by: Self.inOrder)
+        items.values.filter { !$0.deleted && $0.parent == nil && $0.done && $0.list == list }.sorted(by: Self.inOrder)
+    }
+
+    /// A to-do's sub-tasks, in their own order (checking one off does not move it).
+    public func children(of id: UUID) -> [TodoItem] {
+        items.values.filter { !$0.deleted && $0.parent == id }.sorted(by: Self.inOrder)
+    }
+
+    /// How many sub-tasks are done, out of how many.
+    public func progress(of id: UUID) -> (done: Int, total: Int) {
+        let kids = children(of: id)
+        return (kids.filter(\.done).count, kids.count)
     }
 
     // MARK: - Editing
@@ -42,6 +53,18 @@ public struct TodoState: Codable, Equatable, Sendable {
         guard !trimmed.isEmpty else { return nil }
         let item = TodoItem(id: id, title: trimmed, scope: list.scope, day: list.start,
                             position: (open(in: list).last?.position ?? 0) + 1, updatedAt: now)
+        write(item)
+        return item
+    }
+
+    /// Adds a sub-task at the end of a to-do's sub-tasks. Sub-tasks cannot have their own.
+    @discardableResult
+    public mutating func addChild(_ title: String, to parentID: UUID, now: Int64, id: UUID = UUID()) -> TodoItem? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let parent = item(parentID), parent.parent == nil else { return nil }
+        let item = TodoItem(id: id, title: trimmed, scope: parent.scope, day: parent.day,
+                            position: (children(of: parentID).last?.position ?? 0) + 1,
+                            updatedAt: now, parent: parentID)
         write(item)
         return item
     }
@@ -70,18 +93,38 @@ public struct TodoState: Codable, Equatable, Sendable {
         update(id, now) { $0.starred.toggle() }
     }
 
+    /// Deletes a to-do, and its sub-tasks with it.
     public mutating func delete(_ id: UUID, now: Int64) {
+        for child in children(of: id) { update(child.id, now) { $0.deleted = true } }
         update(id, now) { $0.deleted = true }
     }
 
     /// Moves a to-do to the end of another list of the same kind (day, week or month).
     public mutating func move(_ id: UUID, toListContaining day: Day, now: Int64) {
-        guard let item = item(id) else { return }
+        guard let item = item(id), item.parent == nil else { return }
         let list = ListKey(item.scope, containing: day)
         guard list != item.list else { return }
         let others = item.done ? done(in: list) : open(in: list)
         let position = (others.last?.position ?? 0) + 1
         update(id, now) { $0.day = list.start; $0.position = position }
+    }
+
+    /// Moves a to-do between the day, week and month lists (its sub-tasks come along).
+    /// A week or month takes the one around the to-do's own date. A day takes today when
+    /// today falls in the to-do's current week or month, otherwise that period's first day.
+    public mutating func changeScope(_ id: UUID, to scope: Scope, today: Day, now: Int64) {
+        guard let item = item(id), item.parent == nil, item.scope != scope else { return }
+        let start = item.list.start
+        let around: Day
+        if scope == .day, ListKey(item.scope, containing: today) == item.list {
+            around = today
+        } else {
+            around = start
+        }
+        let target = ListKey(scope, containing: around)
+        let others = item.done ? done(in: target) : open(in: target)
+        let position = (others.last?.position ?? 0) + 1
+        update(id, now) { $0.scope = scope; $0.day = target.start; $0.position = position }
     }
 
     /// "Later": the next day, week or month after whichever is later, its own or the current one.
@@ -96,6 +139,7 @@ public struct TodoState: Codable, Equatable, Sendable {
     /// Unfinished and finished to-dos are not mixed, nor are days, weeks and months.
     public mutating func move(_ id: UUID, to targetID: UUID, now: Int64) {
         guard id != targetID, let moving = item(id), let target = item(targetID),
+              moving.parent == nil, target.parent == nil,
               moving.done == target.done, moving.scope == target.scope else { return }
         var list = moving.done ? done(in: target.list) : open(in: target.list)
         let from = list.firstIndex { $0.id == id }
@@ -116,7 +160,7 @@ public struct TodoState: Codable, Equatable, Sendable {
         for scope in Scope.allCases {
             let current = ListKey(scope, containing: today)
             let stale = items.values
-                .filter { !$0.deleted && !$0.done && $0.scope == scope && $0.list.start < current.start }
+                .filter { !$0.deleted && !$0.done && $0.parent == nil && $0.scope == scope && $0.list.start < current.start }
                 .sorted { ($0.day, $0.position, $0.id.uuidString) < ($1.day, $1.position, $1.id.uuidString) }
             guard !stale.isEmpty else { continue }
             let top = open(in: current).first?.position ?? 1

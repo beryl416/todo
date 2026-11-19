@@ -43,6 +43,9 @@ begin
 end
 $$;
 
+-- Added later: sub-tasks point at their parent to-do (null for top-level to-dos).
+alter table todo.items add column if not exists parent uuid;
+
 create index if not exists items_space_rev on todo.items (space, rev);
 
 alter table todo.spaces enable row level security;
@@ -92,6 +95,7 @@ begin
                'starred', i.starred,
                'position', i.position,
                'deleted', i.deleted,
+               'parent', i.parent,
                'updated_at', i.updated_at)
              order by i.rev)
       from todo.items i
@@ -118,7 +122,7 @@ begin
     raise exception 'bad batch' using errcode = '22023';
   end if;
 
-  insert into todo.items as t (space, id, title, scope, day, done, starred, position, deleted, updated_at)
+  insert into todo.items as t (space, id, title, scope, day, done, starred, position, deleted, parent, updated_at)
   select s,
          (x ->> 'id')::uuid,
          left(coalesce(x ->> 'title', ''), 1000),
@@ -128,6 +132,7 @@ begin
          coalesce((x ->> 'starred')::boolean, false),
          coalesce((x ->> 'position')::double precision, 0),
          coalesce((x ->> 'deleted')::boolean, false),
+         nullif(x ->> 'parent', '')::uuid,
          (x ->> 'updated_at')::bigint
   from jsonb_array_elements(p_items) as x
   on conflict (space, id) do update
@@ -138,6 +143,7 @@ begin
         starred    = excluded.starred,
         position   = excluded.position,
         deleted    = excluded.deleted,
+        parent     = excluded.parent,
         updated_at = excluded.updated_at,
         rev        = nextval('todo.rev_seq')
     where t.updated_at <= excluded.updated_at;

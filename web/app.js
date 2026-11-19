@@ -60,8 +60,10 @@ function save() {
 const live = (i) => i && !i.deleted;
 const inOrder = (a, b) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 const all = () => Object.values(state.items);
-const openIn = (list) => all().filter((i) => live(i) && !i.done && inList(i, list)).sort(inOrder);
-const doneIn = (list) => all().filter((i) => live(i) && i.done && inList(i, list)).sort(inOrder);
+const openIn = (list) => all().filter((i) => live(i) && !i.parent && !i.done && inList(i, list)).sort(inOrder);
+const doneIn = (list) => all().filter((i) => live(i) && !i.parent && i.done && inList(i, list)).sort(inOrder);
+// Sub-tasks stay in their own order; checking one off does not move it.
+const childrenOf = (id) => all().filter((i) => live(i) && i.parent === id).sort(inOrder);
 
 function write(item) {
   state.items[item.id] = item;
@@ -85,17 +87,45 @@ function addItem(title, list) {
     position: (last ? last.position : 0) + 1, deleted: false, updated_at: Date.now(),
   });
 }
+// Sub-tasks belong to a top-level to-do and go wherever it goes. No sub-tasks of sub-tasks.
+function addChild(title, parentId) {
+  const t = title.trim();
+  const parent = state.items[parentId];
+  if (!t || !live(parent) || parent.parent) return;
+  const last = childrenOf(parentId).at(-1);
+  write({
+    id: crypto.randomUUID(), title: t, scope: scopeOf(parent), day: parent.day, done: false, starred: false,
+    position: (last ? last.position : 0) + 1, deleted: false, parent: parentId, updated_at: Date.now(),
+  });
+}
+// Deletes a to-do, and its sub-tasks with it.
+function removeItem(id) {
+  for (const c of childrenOf(id)) update(c.id, (i) => { i.deleted = true; });
+  update(id, (i) => { i.deleted = true; });
+}
+// Moves a to-do between the day, week and month lists. A week or month takes the one
+// around its date; a day takes today if today is in its current period, else that period's first day.
+function changeScope(id, scope) {
+  const cur = state.items[id];
+  if (!live(cur) || cur.parent || scopeOf(cur) === scope) return;
+  const own = listOf(cur);
+  const around = scope === 'day' && startOf(own.scope, view.today) === own.start ? view.today : own.start;
+  const target = { scope, start: startOf(scope, around) };
+  const others = cur.done ? doneIn(target) : openIn(target);
+  const position = (others.length ? others.at(-1).position : 0) + 1;
+  update(id, (i) => { i.scope = scope; i.day = target.start; i.position = position; });
+}
 function commitTitle(id) {
   const cur = state.items[id];
   if (!live(cur)) return;
   const t = cur.title.trim();
-  if (!t) update(id, (i) => { i.deleted = true; });
+  if (!t) removeItem(id);
   else if (t !== cur.title) update(id, (i) => { i.title = t; });
 }
 // "Later": the next day, week or month after whichever is later, its own or the current one.
 function postpone(id) {
   const cur = state.items[id];
-  if (!live(cur)) return;
+  if (!live(cur) || cur.parent) return;
   const scope = scopeOf(cur);
   const own = listOf(cur).start;
   const current = startOf(scope, view.today);
@@ -110,7 +140,7 @@ function rollOver(today) {
   for (const scope of SCOPES) {
     const current = { scope, start: startOf(scope, today) };
     const stale = all()
-      .filter((i) => live(i) && !i.done && scopeOf(i) === scope && listOf(i).start < current.start)
+      .filter((i) => live(i) && !i.done && !i.parent && scopeOf(i) === scope && listOf(i).start < current.start)
       .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : inOrder(a, b)));
     if (!stale.length) continue;
     const top = openIn(current)[0]?.position ?? 1;
@@ -234,9 +264,10 @@ const view = {
   anchor: localToday(),
 };
 const currentList = () => ({ scope: view.mode, start: startOf(view.mode, view.anchor) });
-let editingId = null;
+let expandedId = null; // the to-do opened to show its sub-tasks
+let editingId = null;  // the sub-task whose title is being edited
 let renderPending = false;
-let focusAfter = null; // { add: true } | { edit: id }
+let focusAfter = null; // { add: true } | { edit: id } | { childAdd: parentId }
 
 const $ = (id) => document.getElementById(id);
 const svg = (body) => `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -281,7 +312,23 @@ function requestRender() {
   if (typing() || pointerDown) { renderPending = true; return; }
   render();
 }
-document.addEventListener('pointerdown', () => { pointerDown = true; }, true);
+document.addEventListener('pointerdown', (e) => {
+  pointerDown = true;
+  const t = e.target;
+  // A tap outside the open to-do closes it.
+  if (expandedId && !t.closest(`[data-block="${expandedId}"]`)) { collapse(); renderPending = true; }
+  // A tap on empty space removes the cursor.
+  if (!t.closest('textarea, button, .text')) {
+    const a = document.activeElement;
+    if (a && a.tagName === 'TEXTAREA') a.blur();
+  }
+}, true);
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const a = document.activeElement;
+  if (a && a.tagName === 'TEXTAREA') a.blur();
+  if (expandedId) { collapse(); render(); }
+});
 for (const type of ['pointerup', 'pointercancel']) {
   document.addEventListener(type, () => {
     pointerDown = false;
@@ -311,25 +358,40 @@ function render() {
   document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#1e1e1e' : '#ffffff');
 
   // Unfinished, then finished, then the add line.
+  // A redraw puts the cursor back where it was, so the iPhone keyboard stays up.
+  const keepFocus = focusAfter || focusKey(document.activeElement);
+  const caret = !focusAfter && document.activeElement?.tagName === 'TEXTAREA' ? document.activeElement.selectionStart : null;
+  focusAfter = null;
   const list = currentList();
   const wrap = h('div', { class: 'list' });
   for (const item of openIn(list)) wrap.append(row(item));
   for (const item of doneIn(list)) wrap.append(row(item));
   wrap.append(addRow(list));
   main.replaceChildren(wrap);
+  for (const ta of main.querySelectorAll('textarea')) fit(ta);
   $('status').textContent = online ? '' : '오프라인 · 연결되면 맞춰집니다';
 
-  if (focusAfter) {
-    const sel = focusAfter.add ? 'textarea[data-add]' : `textarea[data-edit="${focusAfter.edit}"]`;
-    const el = main.querySelector(sel);
-    focusAfter = null;
+  if (keepFocus) {
+    const el = main.querySelector(selectorFor(keepFocus));
     if (el) {
-      el.focus();
-      const end = el.value.length;
-      el.setSelectionRange(end, end);
-      fit(el);
+      el.focus({ preventScroll: true });
+      const pos = caret ?? el.value.length;
+      el.setSelectionRange(pos, pos);
     }
   }
+}
+
+function focusKey(el) {
+  if (!el || el.tagName !== 'TEXTAREA') return null;
+  if (el.dataset.edit) return { edit: el.dataset.edit };
+  if (el.dataset.childAdd) return { childAdd: el.dataset.childAdd };
+  if ('add' in el.dataset) return { add: true };
+  return null;
+}
+function selectorFor(key) {
+  if (key.edit) return `textarea[data-edit="${key.edit}"]`;
+  if (key.childAdd) return `textarea[data-child-add="${key.childAdd}"]`;
+  return 'textarea[data-add]';
 }
 
 function fit(el) {
@@ -343,77 +405,180 @@ function act(change) {
   render();
 }
 
+// ---------- open to-dos and sub-tasks ----------
 const POSTPONE_LABEL = { day: '내일로', week: '다음 주로', month: '다음 달로' };
+const SCOPE_LABEL = { day: '일', week: '주', month: '월' };
+const keep = (e) => e.preventDefault(); // tapping this must not take the cursor away
+
+// Opens a to-do: its title becomes editable and its sub-tasks appear below.
+function openItem(id) {
+  collapse();
+  expandedId = id;
+  focusAfter = { edit: id };
+  render();
+}
+
+// Closes the open to-do and finishes edits inside it (a blank title deletes it).
+function collapse() {
+  if (editingId) { const id = editingId; editingId = null; commitTitle(id); }
+  if (expandedId) { const id = expandedId; expandedId = null; commitTitle(id); }
+  scheduleSync();
+}
+
+// Typing into a title. Return calls onReturn instead of adding a line break.
+function titleArea(item, onReturn, onBlur) {
+  const ta = h('textarea', {
+    rows: 1,
+    'data-edit': item.id,
+    enterkeyhint: 'next',
+    oninput: (e) => {
+      const t = e.target;
+      const value = t.value.replace(/\n/g, ' ');
+      if (value !== t.value) t.value = value;
+      update(item.id, (i) => { i.title = value; });
+      fit(t);
+      if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph' || /\n/.test(e.data || '')) onReturn(t);
+      else scheduleSync(1200);
+    },
+    onblur: onBlur,
+  });
+  ta.value = item.title;
+  return ta;
+}
 
 function row(item) {
+  const open = expandedId === item.id;
+  const block = h('div', { class: `block${open ? ' open' : ''}`, 'data-block': item.id });
   const el = h('div', { class: `row${item.done ? ' done' : ''}` });
   el.append(h('button', {
     class: 'check',
     'aria-label': item.done ? '완료 취소' : '완료',
+    onpointerdown: open ? keep : null,
+    onmousedown: open ? keep : null,
     onclick: () => act(() => update(item.id, (i) => { i.done = !i.done; })),
   }, h('span')));
 
-  if (editingId === item.id) {
-    const ta = h('textarea', {
-      rows: 1,
-      'data-edit': item.id,
-      enterkeyhint: 'done',
-      oninput: (e) => {
-        const t = e.target;
-        if (t.value.includes('\n')) {
-          t.value = t.value.replace(/\n/g, ' ');
-          update(item.id, (i) => { i.title = t.value; });
-          t.blur();
-          return;
-        }
-        update(item.id, (i) => { i.title = t.value; });
-        fit(t);
-        scheduleSync(1200);
-      },
-      onblur: () => finishEditing(item.id),
-    });
-    ta.value = item.title;
-    const keep = (e) => e.preventDefault(); // keep the keyboard open when tapping a tool
-    const tools = h('div', { class: 'tools' },
+  if (open) {
+    el.append(titleArea(item,
+      () => block.querySelector('textarea[data-child-add]')?.focus(),
+      () => { // keep a blank title until the to-do closes; trim a real one now
+        const cur = state.items[item.id];
+        if (cur && cur.title.trim() && cur.title.trim() !== cur.title) commitTitle(item.id);
+        scheduleSync();
+      }));
+    el.append(h('div', { class: 'tools' },
       h('button', {
+        class: item.starred ? 'starred' : '',
         'aria-label': '중요', onpointerdown: keep, onmousedown: keep,
         onclick: (e) => {
           update(item.id, (i) => { i.starred = !i.starred; });
-          e.currentTarget.textContent = state.items[item.id].starred ? '★' : '☆';
+          const on = state.items[item.id].starred;
+          e.currentTarget.textContent = on ? '★' : '☆';
+          e.currentTarget.classList.toggle('starred', on);
           scheduleSync();
         },
       }, item.starred ? '★' : '☆'),
       item.done ? null : h('button', {
         'aria-label': POSTPONE_LABEL[scopeOf(item)], onpointerdown: keep, onmousedown: keep,
-        onclick: () => { endEdit(); act(() => postpone(item.id)); },
+        onclick: () => { collapse(); act(() => postpone(item.id)); },
       }, '→'),
       h('button', {
         'aria-label': '삭제', onpointerdown: keep, onmousedown: keep,
-        onclick: () => { endEdit(); act(() => update(item.id, (i) => { i.deleted = true; })); },
-      }, '×'));
-    el.append(ta, tools);
+        onclick: () => { expandedId = null; editingId = null; act(() => removeItem(item.id)); },
+      }, '×')));
+    block.append(el);
+    for (const child of childrenOf(item.id)) block.append(childRow(child));
+    block.append(childAddRow(item.id), scopeSwitch(item));
+  } else {
+    el.append(h('div', { class: 'text', text: item.title, onclick: () => openItem(item.id) }));
+    const kids = childrenOf(item.id);
+    if (kids.length) el.append(h('span', { class: 'count', text: `${kids.filter((k) => k.done).length}/${kids.length}` }));
+    if (item.starred) el.append(h('span', { class: 'star', text: '★' }));
+    block.append(el);
+  }
+  return block;
+}
+
+function childRow(child) {
+  const el = h('div', { class: `row child${child.done ? ' done' : ''}` });
+  el.append(h('button', {
+    class: 'check',
+    'aria-label': child.done ? '완료 취소' : '완료',
+    onpointerdown: keep, onmousedown: keep,
+    onclick: () => act(() => update(child.id, (i) => { i.done = !i.done; })),
+  }, h('span')));
+  if (editingId === child.id) {
+    el.append(titleArea(child,
+      () => $('main').querySelector(`textarea[data-child-add="${child.parent}"]`)?.focus(),
+      () => {
+        if (editingId !== child.id) return;
+        editingId = null;
+        commitTitle(child.id);
+        scheduleSync();
+        setTimeout(requestRender, 0);
+      }));
+    el.append(h('div', { class: 'tools' }, h('button', {
+      'aria-label': '삭제', onpointerdown: keep, onmousedown: keep,
+      onclick: () => { editingId = null; act(() => removeItem(child.id)); },
+    }, '×')));
   } else {
     el.append(h('div', {
       class: 'text',
-      text: item.title,
-      onclick: () => { editingId = item.id; focusAfter = { edit: item.id }; render(); },
+      text: child.title,
+      onclick: () => { editingId = child.id; focusAfter = { edit: child.id }; render(); },
     }));
-    if (item.starred) el.append(h('span', { class: 'star', text: '★' }));
   }
   return el;
 }
 
-function endEdit() {
-  const id = editingId;
-  editingId = null;
-  if (id) commitTitle(id);
+function childAddRow(parentId) {
+  const ta = h('textarea', {
+    rows: 1,
+    'data-child-add': parentId,
+    placeholder: '하위 할 일 추가',
+    enterkeyhint: 'next',
+    'aria-label': '하위 할 일 추가',
+    oninput: (e) => {
+      const t = e.target;
+      if (!t.value.includes('\n')) { fit(t); return; }
+      const text = t.value.replace(/\n/g, '');
+      t.value = '';
+      if (text.trim()) { // Return adds the sub-task and stays here for the next one
+        addChild(text, parentId);
+        scheduleSync();
+        focusAfter = { childAdd: parentId };
+      } else {           // Return on an empty line closes the to-do
+        t.blur();
+        collapse();
+      }
+      render();
+    },
+    onblur: (e) => {
+      const t = e.target;
+      if (!t.value.trim()) return;
+      addChild(t.value, parentId);
+      t.value = '';
+      scheduleSync();
+      renderPending = true;
+      setTimeout(() => { if (renderPending) requestRender(); }, 0);
+    },
+  });
+  return h('div', { class: 'row child-add' }, ta);
 }
 
-function finishEditing(id) {
-  if (editingId !== id) return;
-  endEdit();
-  scheduleSync();
-  setTimeout(requestRender, 0);
+// "일 · 주 · 월" under an open to-do: the list it lives in, and where else it can go.
+function scopeSwitch(item) {
+  const wrap = h('div', { class: 'scopes' });
+  for (const scope of SCOPES) {
+    const here = scope === scopeOf(item);
+    wrap.append(h('button', {
+      class: here ? 'on' : '',
+      'aria-label': here ? `지금 ${SCOPE_LABEL[scope]}간 목록` : `${SCOPE_LABEL[scope]}간으로 옮기기`,
+      onpointerdown: keep, onmousedown: keep,
+      onclick: () => { if (here) return; collapse(); act(() => changeScope(item.id, scope)); },
+    }, SCOPE_LABEL[scope]));
+  }
+  return wrap;
 }
 
 function addRow(list) {

@@ -15,6 +15,8 @@ enum Theme {
     static let lineHeight: CGFloat = 16
     static var background: Color { Color(nsColor: .textBackgroundColor) }
     static var faint: Color { Color.secondary.opacity(0.45) }
+    /// The one color in the app: a starred to-do.
+    static let star = Color(red: 0.96, green: 0.65, blue: 0.14)
 }
 
 // MARK: - Window
@@ -34,10 +36,11 @@ struct ContentView: View {
                     .padding(.horizontal, Theme.side)
                     .padding(.bottom, 28)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            .background {
-                // Clicking empty space ends editing.
-                Color.clear.contentShape(Rectangle()).onTapGesture { focus = nil }
+                    // Fill the visible area so a click below the list lands on the background.
+                    .containerRelativeFrame(.vertical, alignment: .top) { height, _ in height }
+                    .background {
+                        Color.clear.contentShape(Rectangle()).onTapGesture(perform: clearFocus)
+                    }
             }
             if store.syncEnabled && !store.online {
                 Text("오프라인 · 연결되면 맞춰집니다")
@@ -46,9 +49,17 @@ struct ContentView: View {
                     .padding(.bottom, 8)
             }
         }
-        .background(Theme.background)
+        .background {
+            // Clicking empty space (header gaps, margins) ends editing too.
+            Theme.background.contentShape(Rectangle()).onTapGesture(perform: clearFocus)
+        }
+        .onAppear {
+            // macOS puts the cursor in the first text field on its own; start with none.
+            DispatchQueue.main.async(execute: clearFocus)
+        }
         .onChange(of: focus) { old, new in
             if case .item(let id)? = old, new != .item(id) { store.commitEditing(id) }
+            if let open = store.expandedID, !store.focus(new, isInside: open) { store.collapse() }
         }
         .onChange(of: store.editingID) { _, id in
             guard let id else { return }
@@ -57,6 +68,13 @@ struct ContentView: View {
         .onChange(of: store.addRequest) { _, _ in
             DispatchQueue.main.async { focus = .add }
         }
+    }
+
+    /// Removes the text cursor (and closes an open to-do).
+    private func clearFocus() {
+        focus = nil
+        NSApp.keyWindow?.makeFirstResponder(nil)
+        if store.expandedID != nil { store.collapse() }
     }
 }
 
@@ -68,7 +86,6 @@ struct Header: View {
             Text(store.title)
                 .font(Theme.bold)
                 .lineLimit(1)
-                .padding(.leading, Theme.gutter)
                 .onTapGesture { store.goToToday() }
                 .help("오늘로")
             Spacer(minLength: 8)
@@ -160,6 +177,24 @@ struct TaskList: View {
     }
 }
 
+/// A title being typed into. Return (or a pasted line break) calls `onReturn`.
+@MainActor
+func titleBinding(_ store: Store, _ id: UUID, onReturn: @escaping () -> Void) -> Binding<String> {
+    Binding(
+        get: { store.state.item(id)?.title ?? "" },
+        set: { value in
+            if value.contains("\n") {
+                store.setTitle(id, value.replacingOccurrences(of: "\n", with: " "))
+                DispatchQueue.main.async(execute: onReturn)
+            } else {
+                store.setTitle(id, value)
+            }
+        }
+    )
+}
+
+/// A to-do. Clicking its title opens it: the title becomes editable and its
+/// sub-tasks, an "add sub-task" line and the day/week/month switch appear below.
 struct TodoRow: View {
     let item: TodoItem
     var focus: FocusState<Focus?>.Binding
@@ -167,19 +202,98 @@ struct TodoRow: View {
     @State private var hovering = false
 
     private var editing: Bool { store.editingID == item.id }
+    private var expanded: Bool { store.expandedID == item.id }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            mainRow
+            if expanded {
+                ForEach(store.state.children(of: item.id)) { ChildRow(item: $0, focus: focus) }
+                ChildAddRow(parentID: item.id, focus: focus)
+                ScopeSwitch(item: item)
+            }
+        }
+    }
+
+    private var mainRow: some View {
         HStack(alignment: .top, spacing: 0) {
             CheckBox(checked: item.done)
                 .frame(width: Theme.gutter, height: Theme.lineHeight, alignment: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture { store.toggleDone(item.id) }
             if editing {
-                TextField("", text: titleBinding, axis: .vertical)
+                TextField("", text: titleBinding(store, item.id) { focus.wrappedValue = .childAdd(item.id) }, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(Theme.body)
                     .focused(focus, equals: .item(item.id))
-                    .onSubmit { focus.wrappedValue = nil }
+                    .onSubmit { focus.wrappedValue = .childAdd(item.id) }
+                    .onExitCommand { focus.wrappedValue = nil }
+            } else {
+                Text(item.title)
+                    .font(Theme.body)
+                    .strikethrough(item.done)
+                    .foregroundStyle(item.done ? Theme.faint : Color.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentShape(Rectangle())
+                    .onTapGesture { expanded ? store.beginEditing(item.id) : store.open(item.id) }
+            }
+            let progress = store.state.progress(of: item.id)
+            if !expanded && progress.total > 0 {
+                Text("\(progress.done)/\(progress.total)")
+                    .font(Theme.small)
+                    .foregroundStyle(Theme.faint)
+                    .frame(height: Theme.lineHeight)
+                    .padding(.leading, 8)
+            }
+            Image(systemName: item.starred ? "star.fill" : "star")
+                .font(.system(size: 11))
+                .foregroundStyle(item.starred ? Theme.star : Color.secondary)
+                .frame(width: 20, height: Theme.lineHeight, alignment: .trailing)
+                .opacity(hovering || expanded || item.starred ? 1 : 0)
+                .contentShape(Rectangle())
+                .onTapGesture { store.toggleStar(item.id) }
+                .padding(.leading, 8)
+        }
+        .padding(.vertical, Theme.rowPadding)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .contextMenu {
+            Button(item.starred ? "중요 표시 빼기" : "중요 표시") { store.toggleStar(item.id) }
+            if !item.done { Button(store.postponeLabel) { store.postpone(item.id) } }
+            ForEach(Scope.allCases.filter { $0 != item.scope }, id: \.self) { scope in
+                Button(Store.moveLabel(scope)) { store.changeScope(item.id, to: scope) }
+            }
+            Divider()
+            Button("삭제") { store.delete(item.id) }
+        }
+        .onDrag {
+            store.dragging = item.id
+            return NSItemProvider(object: item.id.uuidString as NSString)
+        }
+        .onDrop(of: [.text], delegate: RowDrop(target: item.id, store: store))
+    }
+}
+
+/// A sub-task: indented so its checkbox lines up with the parent's title.
+struct ChildRow: View {
+    let item: TodoItem
+    var focus: FocusState<Focus?>.Binding
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        let parent = item.parent ?? item.id
+        HStack(alignment: .top, spacing: 0) {
+            CheckBox(checked: item.done)
+                .frame(width: Theme.gutter, height: Theme.lineHeight, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture { store.toggleDone(item.id) }
+            if store.editingID == item.id {
+                TextField("", text: titleBinding(store, item.id) { focus.wrappedValue = .childAdd(parent) }, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(Theme.body)
+                    .focused(focus, equals: .item(item.id))
+                    .onSubmit { focus.wrappedValue = .childAdd(parent) }
                     .onExitCommand { focus.wrappedValue = nil }
             } else {
                 Text(item.title)
@@ -191,43 +305,90 @@ struct TodoRow: View {
                     .contentShape(Rectangle())
                     .onTapGesture { store.beginEditing(item.id) }
             }
-            Image(systemName: item.starred ? "star.fill" : "star")
-                .font(.system(size: 11))
-                .foregroundStyle(Color.secondary)
-                .frame(width: 20, height: Theme.lineHeight, alignment: .trailing)
-                .opacity(hovering || item.starred ? 1 : 0)
-                .contentShape(Rectangle())
-                .onTapGesture { store.toggleStar(item.id) }
-                .padding(.leading, 8)
         }
-        .padding(.vertical, Theme.rowPadding)
+        .padding(.leading, Theme.gutter)
+        .padding(.vertical, 5)
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .contextMenu {
-            Button(item.starred ? "중요 표시 빼기" : "중요 표시") { store.toggleStar(item.id) }
-            if !item.done { Button(store.postponeLabel) { store.postpone(item.id) } }
-            Divider()
-            Button("삭제") { store.delete(item.id) }
+        .contextMenu { Button("삭제") { store.delete(item.id) } }
+    }
+}
+
+struct ChildAddRow: View {
+    let parentID: UUID
+    var focus: FocusState<Focus?>.Binding
+    @Environment(Store.self) private var store
+    @State private var text = ""
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if text.isEmpty {
+                Text("하위 할 일 추가")
+                    .font(Theme.body)
+                    .foregroundStyle(Theme.faint)
+                    .allowsHitTesting(false)
+            }
+            TextField("", text: $text, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(Theme.body)
+                .focused(focus, equals: .childAdd(parentID))
+                .onSubmit(submit)
+                .onExitCommand {
+                    text = ""
+                    focus.wrappedValue = nil
+                }
+                .onChange(of: text) { _, value in
+                    if value.contains("\n") {
+                        text = value.replacingOccurrences(of: "\n", with: "")
+                        submit()
+                    }
+                }
         }
-        .onDrag {
-            store.dragging = item.id
-            return NSItemProvider(object: item.id.uuidString as NSString)
-        }
-        .onDrop(of: [.text], delegate: RowDrop(target: item.id, store: store))
+        .padding(.leading, Theme.gutter * 2)
+        .padding(.vertical, 5)
     }
 
-    private var titleBinding: Binding<String> {
-        Binding(
-            get: { store.state.item(item.id)?.title ?? "" },
-            set: { value in
-                if value.contains("\n") {
-                    store.setTitle(item.id, value.replacingOccurrences(of: "\n", with: " "))
-                    DispatchQueue.main.async { focus.wrappedValue = nil }
-                } else {
-                    store.setTitle(item.id, value)
-                }
+    /// Return adds the sub-task; Return on an empty line closes the to-do.
+    private func submit() {
+        let title = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        text = ""
+        if title.isEmpty {
+            focus.wrappedValue = nil
+            return
+        }
+        store.addChild(title, to: parentID)
+        DispatchQueue.main.async { focus.wrappedValue = .childAdd(parentID) }
+    }
+}
+
+/// "일 · 주 · 월" under an open to-do: the list it lives in, and where else it can go.
+struct ScopeSwitch: View {
+    let item: TodoItem
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Scope.allCases, id: \.self) { scope in
+                Text(label(scope))
+                    .font(Theme.small)
+                    .foregroundStyle(scope == item.scope ? Color.primary : Theme.faint)
+                    .padding(.horizontal, 4)
+                    .frame(height: 18)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if scope != item.scope { store.changeScope(item.id, to: scope) } }
+                    .help(scope == item.scope ? "지금 목록" : Store.moveLabel(scope))
             }
-        )
+        }
+        .padding(.leading, Theme.gutter * 2 - 4)
+        .padding(.top, 2)
+        .padding(.bottom, 6)
+    }
+
+    private func label(_ scope: Scope) -> String {
+        switch scope {
+        case .day: return "일"
+        case .week: return "주"
+        case .month: return "월"
+        }
     }
 }
 

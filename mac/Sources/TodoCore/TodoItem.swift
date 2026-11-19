@@ -49,9 +49,12 @@ public struct TodoItem: Codable, Identifiable, Equatable, Sendable {
     public var deleted: Bool
     /// Milliseconds since 1970 of the last change; the newest change wins.
     public var updatedAt: Int64
+    /// Set for a sub-task: the to-do it belongs to. Sub-tasks go wherever their parent goes.
+    public var parent: UUID?
 
     public init(id: UUID = UUID(), title: String, scope: Scope = .day, day: Day, done: Bool = false,
-                starred: Bool = false, position: Double, deleted: Bool = false, updatedAt: Int64) {
+                starred: Bool = false, position: Double, deleted: Bool = false, updatedAt: Int64,
+                parent: UUID? = nil) {
         self.id = id
         self.title = title
         self.scope = scope
@@ -61,13 +64,14 @@ public struct TodoItem: Codable, Identifiable, Equatable, Sendable {
         self.position = position
         self.deleted = deleted
         self.updatedAt = updatedAt
+        self.parent = parent
     }
 
     /// The list this to-do belongs to. Tolerates a day that is not the period's first day.
     public var list: ListKey { ListKey(scope, containing: day) }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, scope, day, done, starred, position, deleted
+        case id, title, scope, day, done, starred, position, deleted, parent
         case updatedAt = "updated_at"
     }
 
@@ -82,5 +86,6 @@ public struct TodoItem: Codable, Identifiable, Equatable, Sendable {
         position = try c.decodeIfPresent(Double.self, forKey: .position) ?? 0
         deleted = try c.decodeIfPresent(Bool.self, forKey: .deleted) ?? false
         updatedAt = try c.decode(Int64.self, forKey: .updatedAt)
+        parent = try c.decodeIfPresent(UUID.self, forKey: .parent)
     }
 }
