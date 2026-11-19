@@ -58,6 +58,23 @@ struct EditingTests {
         #expect(s.pendingPush().map(\.deleted) == [true])
     }
 
+    @Test func addButtonMakesAnEmptyToDoThatGoesAwayIfLeftEmpty() {
+        var s = TodoState()
+        s.add("a", in: dayOf(mon), now: 1)
+        let d = s.add("d", in: dayOf(mon), now: 2)!
+        s.toggleDone(d.id, now: 3)
+        let blank = s.addBlank(in: dayOf(mon), now: 4)
+        #expect(titles(s.open(in: dayOf(mon))) == ["a", ""]) // last of the unfinished
+        #expect(!s.pendingPush().contains { $0.id == blank.id }) // not sent while empty
+        s.setTitle(blank.id, "b", now: 5)
+        s.commitTitle(blank.id, now: 6)
+        #expect(titles(s.open(in: dayOf(mon))) == ["a", "b"])
+        let left = s.addBlank(in: dayOf(mon), now: 7)
+        s.commitTitle(left.id, now: 8)
+        #expect(s.item(left.id) == nil)
+        #expect(titles(s.open(in: dayOf(mon))) == ["a", "b"])
+    }
+
     @Test func commitTrims() {
         var s = TodoState()
         let a = s.add("a", in: dayOf(mon), now: 1)!

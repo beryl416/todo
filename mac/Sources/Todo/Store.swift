@@ -21,10 +21,9 @@ enum ViewMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// What has keyboard focus: the "add" line, a to-do or sub-task being edited,
-/// or the "add sub-task" line under a to-do.
+/// What has keyboard focus: a to-do or sub-task being edited, or the "add sub-task"
+/// line under a to-do.
 enum Focus: Hashable {
-    case add
     case item(UUID)
     case childAdd(UUID)
 }
@@ -49,8 +48,6 @@ final class Store {
     var dragging: UUID?
     private(set) var online = true
     var showPairing = false
-    /// Bumped to ask the view to focus the add line.
-    private(set) var addRequest = 0
 
     @ObservationIgnored private let syncKey: String?
     @ObservationIgnored private let client: SyncClient?
@@ -93,9 +90,13 @@ final class Store {
     /// The list on screen.
     var list: ListKey { ListKey(mode.scope, containing: anchor) }
 
-    func add(_ title: String) {
+    /// The add button and ⌘N: an empty to-do at the end of the unfinished ones, with the
+    /// cursor in it. Left empty, it goes away when editing ends.
+    func addBlank() {
         let list = list
-        change { $0.add(title, in: list, now: $1) }
+        let id = UUID()
+        change { $0.addBlank(in: list, now: $1, id: id) }
+        beginEditing(id)
     }
     func setTitle(_ id: UUID, _ title: String) { change { $0.setTitle(id, title, now: $1) } }
     func toggleDone(_ id: UUID) { change { $0.toggleDone(id, now: $1) } }
@@ -184,9 +185,6 @@ final class Store {
         anchor = day
         mode = .day
     }
-
-    /// ⌘N: focus the add line.
-    func requestAdd() { addRequest += 1 }
 
     static let weekdays = ["월", "화", "수", "목", "금", "토", "일"]
 

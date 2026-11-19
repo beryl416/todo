@@ -78,14 +78,16 @@ function update(id, change) {
   next.updated_at = Math.max(Date.now(), cur.updated_at + 1);
   write(next);
 }
-function addItem(title, list) {
-  const t = title.trim();
-  if (!t) return;
+// The add button: an empty to-do at the end of the unfinished ones, for its title to be
+// typed in. It is not sent while empty, and commitTitle deletes it if left that way.
+function addBlank(list) {
   const last = openIn(list).at(-1);
+  const id = crypto.randomUUID();
   write({
-    id: crypto.randomUUID(), title: t, scope: list.scope, day: list.start, done: false, starred: false,
+    id, title: '', scope: list.scope, day: list.start, done: false, starred: false,
     position: (last ? last.position : 0) + 1, deleted: false, updated_at: Date.now(),
   });
+  return id;
 }
 // Sub-tasks belong to a top-level to-do and go wherever it goes. No sub-tasks of sub-tasks.
 function addChild(title, parentId) {
@@ -282,7 +284,7 @@ let editingId = null;     // the sub-task being edited
 let addingChildTo = null; // the to-do showing an "add sub-task" line
 let renderPending = false;
 let rendering = false;    // a redraw removes text boxes; their blur is not the user leaving
-let focusAfter = null;    // { add: true } | { edit: id } | { childAdd: parentId }
+let focusAfter = null;    // { edit: id } | { childAdd: parentId }
 
 const $ = (id) => document.getElementById(id);
 const svg = (body) => `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -386,7 +388,7 @@ function render() {
   $('theme').innerHTML = dark ? ICON_SUN : ICON_MOON;
   document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#1e1e1e' : '#ffffff');
 
-  // Unfinished, then finished, then the add line.
+  // Unfinished, then finished, then the add button.
   // A redraw puts the cursor back where it was, so the iPhone keyboard stays up.
   const keepFocus = focusAfter || focusKey(document.activeElement);
   const caret = !focusAfter && document.activeElement?.tagName === 'TEXTAREA' ? document.activeElement.selectionStart : null;
@@ -395,7 +397,7 @@ function render() {
   const wrap = h('div', { class: 'list' });
   for (const item of openIn(list)) wrap.append(row(item));
   for (const item of doneIn(list)) wrap.append(row(item));
-  wrap.append(addRow(list));
+  wrap.append(addButton(list));
   rendering = true;
   try { main.replaceChildren(wrap); } finally { rendering = false; }
   for (const ta of main.querySelectorAll('textarea')) fit(ta);
@@ -415,13 +417,11 @@ function focusKey(el) {
   if (!el || el.tagName !== 'TEXTAREA') return null;
   if (el.dataset.edit) return { edit: el.dataset.edit };
   if (el.dataset.childAdd) return { childAdd: el.dataset.childAdd };
-  if ('add' in el.dataset) return { add: true };
   return null;
 }
 function selectorFor(key) {
   if (key.edit) return `textarea[data-edit="${key.edit}"]`;
-  if (key.childAdd) return `textarea[data-child-add="${key.childAdd}"]`;
-  return 'textarea[data-add]';
+  return `textarea[data-child-add="${key.childAdd}"]`;
 }
 
 function fit(el) {
@@ -632,58 +632,20 @@ function moveButton(item) {
   return h('label', { class: 'move' }, SCOPE_LABEL[current], select);
 }
 
-// The line for a new to-do, a little apart from the list. Its + sits where the
-// checkboxes sit; tapping it puts the cursor on the line (adding anything already typed).
-function addRow(list) {
-  const plus = h('button', {
-    class: 'plus',
-    'aria-label': '할 일 추가',
-    onpointerdown: keep, onmousedown: keep,
+// "+ 할 일 추가" as one button, a little apart from the list; its + sits where the
+// checkboxes sit. Tapping it adds an empty to-do at the end of the unfinished ones,
+// opened for typing; left empty, that to-do goes away again.
+function addButton(list) {
+  return h('button', {
+    class: 'add',
+    onpointerdown: keep, onmousedown: keep, // keeps the iPhone keyboard up while moving on
     onclick: () => {
-      const text = ta.value;
-      ta.value = '';
       finishEdits();
-      if (text.trim()) addItem(text, list);
-      scheduleSync();
-      focusAfter = { add: true };
+      activeId = addBlank(list);
+      focusAfter = { edit: activeId };
       render();
     },
-  }, h('span'));
-  const ta = h('textarea', {
-    rows: 1,
-    'data-add': '',
-    placeholder: '할 일 추가',
-    enterkeyhint: 'done',
-    'aria-label': '할 일 추가',
-    oninput: (e) => {
-      const t = e.target;
-      if (t.value.includes('\n')) {
-        const text = t.value.replace(/\n/g, '');
-        t.value = '';
-        if (text.trim()) {
-          addItem(text, list);
-          scheduleSync();
-          focusAfter = { add: true };
-          render();
-        } else {
-          t.blur();
-        }
-        return;
-      }
-      fit(t);
-    },
-    onblur: (e) => {
-      const t = e.target;
-      if (t.value.trim()) {
-        addItem(t.value, list);
-        t.value = '';
-        scheduleSync();
-        renderPending = true;
-      }
-      setTimeout(() => { if (renderPending) requestRender(); }, 0);
-    },
-  });
-  return h('div', { class: 'row add' }, plus, ta);
+  }, h('span', { class: 'plus' }), '할 일 추가');
 }
 
 // ---------- navigation ----------

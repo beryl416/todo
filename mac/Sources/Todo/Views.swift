@@ -73,9 +73,6 @@ struct ContentView: View {
                 }
             }
         }
-        .onChange(of: store.addRequest) { _, _ in
-            DispatchQueue.main.async { focus = .add }
-        }
         .onChange(of: store.addingChildTo) { _, id in
             guard let id else { return }
             DispatchQueue.main.async { focus = .childAdd(id) }
@@ -186,7 +183,7 @@ struct ThemeToggle: View {
 
 // MARK: - List
 
-/// The day's, week's or month's to-dos: unfinished, then finished, then the add line.
+/// The day's, week's or month's to-dos: unfinished, then finished, then the add button.
 struct TaskList: View {
     var focus: FocusState<Focus?>.Binding
     @Environment(Store.self) private var store
@@ -197,7 +194,7 @@ struct TaskList: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(open) { TodoRow(item: $0, focus: focus) }
             ForEach(done) { TodoRow(item: $0, focus: focus) }
-            AddRow(focus: focus, apart: !(open.isEmpty && done.isEmpty))
+            AddButton(apart: !(open.isEmpty && done.isEmpty))
         }
     }
 }
@@ -385,71 +382,38 @@ struct ChildAddRow: View {
 }
 
 
-/// The line for a new to-do, a little apart from the list. Its + sits where the
-/// checkboxes sit; clicking it puts the cursor on the line (adding anything already typed).
-struct AddRow: View {
-    var focus: FocusState<Focus?>.Binding
-    /// Set when to-dos are listed above, so the line reads as a button, not one more to-do.
+/// "+ 할 일 추가" as one button, a little apart from the list. Its + sits where the
+/// checkboxes sit. Clicking it adds an empty to-do at the end of the unfinished ones
+/// with the cursor in it; left empty, that to-do goes away again.
+struct AddButton: View {
+    /// Set when to-dos are listed above, so the button doesn't read as one more to-do.
     var apart: Bool
     @Environment(Store.self) private var store
-    @State private var text = ""
     @State private var hovering = false
 
     var body: some View {
+        let ink = hovering ? Color.primary : Color.secondary
         HStack(alignment: .top, spacing: 0) {
             PlusMark()
-                .stroke(hovering ? Color.primary : Color.primary.opacity(0.55), lineWidth: 1.2)
+                .stroke(ink, lineWidth: 1.2)
                 .frame(width: 11, height: 11)
                 .frame(width: 13, height: 13) // the size of a checkbox
                 .frame(width: Theme.gutter, height: Theme.lineHeight, alignment: .leading)
-                .contentShape(Rectangle())
-                .onHover { hovering = $0 }
-                .onTapGesture(perform: plus)
-                .help("할 일 추가 (⌘N)")
-                .accessibilityElement()
-                .accessibilityLabel("할 일 추가")
-                .accessibilityAddTraits(.isButton)
-                .accessibilityAction { plus() }
-            ZStack(alignment: .topLeading) {
-                if text.isEmpty {
-                    Text("할 일 추가")
-                        .font(Theme.body)
-                        .foregroundStyle(Theme.faint)
-                        .allowsHitTesting(false)
-                }
-                TextField("", text: $text, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(Theme.body)
-                    .focused(focus, equals: .add)
-                    .onSubmit(submit)
-                    .onExitCommand {
-                        text = ""
-                        focus.wrappedValue = nil
-                    }
-                    .onChange(of: text) { _, value in
-                        if value.contains("\n") {
-                            text = value.replacingOccurrences(of: "\n", with: "")
-                            submit()
-                        }
-                    }
-            }
+            Text("할 일 추가")
+                .font(Theme.body)
+                .foregroundStyle(ink)
         }
-        .padding(.top, apart ? Theme.rowPadding + 8 : Theme.rowPadding)
-        .padding(.bottom, Theme.rowPadding)
-    }
-
-    private func plus() {
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            focus.wrappedValue = .add
-        } else {
-            submit()
-        }
-    }
-
-    private func submit() {
-        store.add(text)
-        text = ""
-        DispatchQueue.main.async { focus.wrappedValue = .add }
+        .padding(.vertical, Theme.rowPadding)
+        .padding(.trailing, 6)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture { store.addBlank() }
+        .help("새 할 일 (⌘N)")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("할 일 추가")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { store.addBlank() }
+        .padding(.top, apart ? 8 : 0)
     }
 }
 

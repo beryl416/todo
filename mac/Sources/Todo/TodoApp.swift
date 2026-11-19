@@ -35,7 +35,7 @@ struct TodoCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("새 할 일") { store.requestAdd() }
+            Button("새 할 일") { store.addBlank() }
                 .keyboardShortcut("n")
             Divider()
             Button("아이폰 연결…") { store.showPairing = true }

@@ -57,6 +57,17 @@ public struct TodoState: Codable, Equatable, Sendable {
         return item
     }
 
+    /// The add button: an empty to-do at the end of the list's unfinished items, for its
+    /// title to be typed in. It is not sent while empty, and `commitTitle` deletes it if
+    /// it is left that way.
+    @discardableResult
+    public mutating func addBlank(in list: ListKey, now: Int64, id: UUID = UUID()) -> TodoItem {
+        let item = TodoItem(id: id, title: "", scope: list.scope, day: list.start,
+                            position: (open(in: list).last?.position ?? 0) + 1, updatedAt: now)
+        write(item)
+        return item
+    }
+
     /// Adds a sub-task at the end of a to-do's sub-tasks. Sub-tasks cannot have their own.
     @discardableResult
     public mutating func addChild(_ title: String, to parentID: UUID, now: Int64, id: UUID = UUID()) -> TodoItem? {
