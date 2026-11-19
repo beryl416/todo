@@ -31,16 +31,18 @@ struct ContentView: View {
                 .padding(.horizontal, Theme.side)
                 .padding(.top, 10)
                 .padding(.bottom, 12)
-            ScrollView {
-                TaskList(focus: $focus)
-                    .padding(.horizontal, Theme.side)
-                    .padding(.bottom, 28)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    // Fill the visible area so a click below the list lands on the background.
-                    .containerRelativeFrame(.vertical, alignment: .top) { height, _ in height }
-                    .background {
-                        Color.clear.contentShape(Rectangle()).onTapGesture(perform: clearFocus)
-                    }
+            GeometryReader { viewport in
+                ScrollView {
+                    TaskList(focus: $focus)
+                        .padding(.horizontal, Theme.side)
+                        .padding(.bottom, 28)
+                        // At least as tall as the window, so a click below the list lands on the
+                        // background; taller lists grow and scroll instead of being squeezed.
+                        .frame(maxWidth: .infinity, minHeight: viewport.size.height, alignment: .topLeading)
+                        .background {
+                            Color.clear.contentShape(Rectangle()).onTapGesture(perform: clearFocus)
+                        }
+                }
             }
             if store.syncEnabled && !store.online {
                 Text("오프라인 · 연결되면 맞춰집니다")
