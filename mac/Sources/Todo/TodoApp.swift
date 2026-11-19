@@ -52,6 +52,9 @@ struct TodoCommands: Commands {
             Divider()
             Button("라이트/다크 모드 전환") { Appearance.toggle() }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
+            Picker("글꼴", selection: Binding(get: { store.font }, set: { store.font = $0 })) {
+                ForEach(FontChoice.allCases) { Text($0.label).tag($0) }
+            }
             Divider()
         }
     }

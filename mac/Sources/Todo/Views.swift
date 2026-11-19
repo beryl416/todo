@@ -2,11 +2,21 @@ import AppKit
 import SwiftUI
 import TodoCore
 
+/// The typeface, chosen per device. Menlo is the default; Hahmlet is bundled in
+/// Resources/Fonts (SIL Open Font License).
+enum FontChoice: String, CaseIterable, Identifiable {
+    case menlo, hahmlet
+    var id: String { rawValue }
+    var label: String { self == .menlo ? "Menlo" : "Hahmlet" }
+    static var saved: FontChoice { FontChoice(rawValue: UserDefaults.standard.string(forKey: "font") ?? "") ?? .menlo }
+}
+
 enum Theme {
-    // Hahmlet (bundled in Resources/Fonts, SIL Open Font License).
-    static let body = Font.custom("Hahmlet-Regular", size: 14)
-    static let bold = Font.custom("Hahmlet-Bold", size: 14)
-    static let small = Font.custom("Hahmlet-Regular", size: 12)
+    /// Set by `Store.font`; views rebuild when it changes.
+    static var choice: FontChoice = .saved
+    static var body: Font { choice == .menlo ? .custom("Menlo", size: 13) : .custom("Hahmlet-Regular", size: 14) }
+    static var bold: Font { choice == .menlo ? .custom("Menlo-Bold", size: 13) : .custom("Hahmlet-Bold", size: 14) }
+    static var small: Font { choice == .menlo ? .custom("Menlo", size: 11) : .custom("Hahmlet-Regular", size: 12) }
     /// Space left of the text where the checkbox sits.
     static let gutter: CGFloat = 29
     static let side: CGFloat = 16
@@ -45,6 +55,7 @@ struct ContentView: View {
                     .padding(.bottom, 8)
             }
         }
+        .id(store.font) // rebuild with the new typeface
         .background(Theme.background)
         .onChange(of: focus) { old, new in
             if case .item(let id)? = old, new != .item(id) { store.commitEditing(id) }
@@ -84,8 +95,26 @@ struct Header: View {
                     .onTapGesture { store.mode = mode }
             }
             Spacer().frame(width: 8)
+            FontToggle()
             ThemeToggle()
         }
+    }
+}
+
+/// "Aa", drawn in the current typeface; switches to the next one.
+struct FontToggle: View {
+    @Environment(Store.self) private var store
+    @State private var hovering = false
+
+    var body: some View {
+        Text("Aa")
+            .font(Theme.small)
+            .foregroundStyle(hovering ? Color.primary : Theme.faint)
+            .frame(width: 24, height: 18)
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .onTapGesture { store.cycleFont() }
+            .help("글꼴: \(store.font.label)")
     }
 }
 

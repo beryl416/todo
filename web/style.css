@@ -6,7 +6,7 @@
   --box: rgba(60, 60, 67, 0.42);
   --edge: rgba(29, 29, 31, 0.55);
   --hover: rgba(0, 0, 0, 0.045);
-  --font: "Hahmlet", "Apple SD Gothic Neo", serif;
+  --font: Menlo, ui-monospace, "SF Mono", monospace;
   color-scheme: light;
 }
 
@@ -20,6 +20,9 @@
   --hover: rgba(255, 255, 255, 0.06);
   color-scheme: dark;
 }
+
+/* Typeface option ("Aa" in the header); Menlo is the default. */
+:root[data-font="hahmlet"] { --font: "Hahmlet", "Apple SD Gothic Neo", serif; }
 
 * { box-sizing: border-box; }
 
@@ -71,6 +74,7 @@ button { cursor: pointer; touch-action: manipulation; }
 .controls button { min-width: 32px; height: 32px; border-radius: 8px; }
 .controls .icon { font-size: 18px; line-height: 1; }
 .controls #theme { display: inline-grid; place-items: center; }
+.controls #font { min-width: 30px; font-size: 13px; }
 .modes { display: inline-flex; margin: 0 6px; }
 .modes button { min-width: 26px; }
 .modes button.on { color: var(--ink); }
