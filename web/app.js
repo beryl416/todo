@@ -119,6 +119,18 @@ function changeScope(id, scope) {
 }
 // Starring a to-do also moves it to the top of its list (unfinished or finished);
 // un-starring leaves it where it is.
+// Checking a to-do's last open sub-task checks the to-do too; unchecking a sub-task
+// of a checked to-do opens the to-do again.
+function toggleDone(id) {
+  const cur = state.items[id];
+  if (!live(cur)) return;
+  update(id, (i) => { i.done = !i.done; });
+  const parent = cur.parent && state.items[cur.parent];
+  if (!live(parent)) return;
+  const checked = !cur.done;
+  if (checked && !parent.done && childrenOf(parent.id).every((c) => c.done)) update(parent.id, (i) => { i.done = true; });
+  else if (!checked && parent.done) update(parent.id, (i) => { i.done = false; });
+}
 function toggleStar(id) {
   const cur = state.items[id];
   if (!live(cur)) return;
@@ -129,6 +141,10 @@ function toggleStar(id) {
     i.starred = true;
     if (first && first.position <= i.position) i.position = first.position - 1;
   });
+}
+// At launch: deletes to-dos left empty when the app last closed mid-edit.
+function dropBlanks() {
+  for (const i of all()) if (live(i) && !i.title.trim()) removeItem(i.id);
 }
 function commitTitle(id) {
   const cur = state.items[id];
@@ -514,7 +530,7 @@ function row(item) {
     'aria-label': item.done ? '완료 취소' : '완료',
     onpointerdown: active ? keep : null,
     onmousedown: active ? keep : null,
-    onclick: () => act(() => update(item.id, (i) => { i.done = !i.done; })),
+    onclick: () => act(() => toggleDone(item.id)),
   }, h('span')));
 
   if (active) {
@@ -562,7 +578,7 @@ function childRow(child) {
     class: 'check',
     'aria-label': child.done ? '완료 취소' : '완료',
     onpointerdown: keep, onmousedown: keep,
-    onclick: () => act(() => update(child.id, (i) => { i.done = !i.done; })),
+    onclick: () => act(() => toggleDone(child.id)),
   }, h('span')));
   if (editingId === child.id) {
     el.append(titleArea(child, (t) => t.blur(), () => {
@@ -704,6 +720,7 @@ setInterval(checkDay, 30000);
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
+dropBlanks();
 rollOver(view.today);
 render();
 sync();

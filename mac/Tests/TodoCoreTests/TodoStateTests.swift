@@ -58,6 +58,34 @@ struct EditingTests {
         #expect(s.pendingPush().map(\.deleted) == [true])
     }
 
+    @Test func checkingTheLastSubTaskChecksTheToDo() {
+        var s = TodoState()
+        let p = s.add("p", in: dayOf(mon), now: 1)!
+        s.add("q", in: dayOf(mon), now: 2)
+        let a = s.addChild("a", to: p.id, now: 3)!
+        let b = s.addChild("b", to: p.id, now: 4)!
+        s.toggleDone(a.id, now: 5)
+        #expect(!s.item(p.id)!.done) // one left
+        s.toggleDone(b.id, now: 6)
+        #expect(s.item(p.id)!.done)
+        #expect(titles(s.open(in: dayOf(mon))) == ["q"])
+        #expect(titles(s.done(in: dayOf(mon))) == ["p"])
+        s.toggleDone(b.id, now: 7) // unchecking one opens the to-do again
+        #expect(!s.item(p.id)!.done)
+        #expect(titles(s.open(in: dayOf(mon))) == ["p", "q"])
+    }
+
+    @Test func aToDoCheckedByHandStaysCheckedWhileSubTasksChange() {
+        var s = TodoState()
+        let p = s.add("p", in: dayOf(mon), now: 1)!
+        let a = s.addChild("a", to: p.id, now: 2)!
+        s.addChild("b", to: p.id, now: 3)
+        s.toggleDone(p.id, now: 4)
+        s.toggleDone(a.id, now: 5)
+        #expect(s.item(p.id)!.done)
+        #expect(s.item(a.id)!.done)
+    }
+
     @Test func addButtonMakesAnEmptyToDoThatGoesAwayIfLeftEmpty() {
         var s = TodoState()
         s.add("a", in: dayOf(mon), now: 1)
@@ -73,6 +101,15 @@ struct EditingTests {
         s.commitTitle(left.id, now: 8)
         #expect(s.item(left.id) == nil)
         #expect(titles(s.open(in: dayOf(mon))) == ["a", "b"])
+    }
+
+    @Test func emptyToDosLeftFromLastTimeAreDropped() {
+        var s = TodoState()
+        let a = s.add("a", in: dayOf(mon), now: 1)!
+        let blank = s.addBlank(in: dayOf(mon), now: 2)
+        #expect(s.dropBlanks(now: 3) == 1)
+        #expect(s.item(blank.id) == nil)
+        #expect(s.item(a.id) != nil)
     }
 
     @Test func commitTrims() {

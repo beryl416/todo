@@ -71,6 +71,7 @@ final class Store {
         client = syncKey.map {
             SyncClient(baseURL: AppConfig.supabaseURL, apiKey: AppConfig.publishableKey, syncKey: $0)
         }
+        state.dropBlanks(now: Store.clock())
         state.rollOver(to: now, now: Store.clock())
         showPairing = CommandLine.arguments.contains("--show-pairing")
         startTimers()

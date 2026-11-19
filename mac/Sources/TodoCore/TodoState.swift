@@ -68,6 +68,14 @@ public struct TodoState: Codable, Equatable, Sendable {
         return item
     }
 
+    /// At launch: deletes to-dos left empty when the app last closed mid-edit.
+    @discardableResult
+    public mutating func dropBlanks(now: Int64) -> Int {
+        let blanks = items.values.filter { !$0.deleted && $0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        for item in blanks { delete(item.id, now: now) }
+        return blanks.count
+    }
+
     /// Adds a sub-task at the end of a to-do's sub-tasks. Sub-tasks cannot have their own.
     @discardableResult
     public mutating func addChild(_ title: String, to parentID: UUID, now: Int64, id: UUID = UUID()) -> TodoItem? {
@@ -96,8 +104,18 @@ public struct TodoState: Codable, Equatable, Sendable {
         }
     }
 
+    /// Checking a to-do's last open sub-task checks the to-do too; unchecking a sub-task
+    /// of a checked to-do opens the to-do again.
     public mutating func toggleDone(_ id: UUID, now: Int64) {
+        guard let current = item(id) else { return }
         update(id, now) { $0.done.toggle() }
+        guard let parentID = current.parent, let parent = item(parentID) else { return }
+        let checked = !current.done
+        if checked, !parent.done, children(of: parentID).allSatisfy(\.done) {
+            update(parentID, now) { $0.done = true }
+        } else if !checked, parent.done {
+            update(parentID, now) { $0.done = false }
+        }
     }
 
     /// Starring a to-do also moves it to the top of its list (unfinished or finished);
