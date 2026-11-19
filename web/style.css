@@ -54,26 +54,23 @@ button { cursor: pointer; touch-action: manipulation; }
            calc(env(safe-area-inset-bottom) + 40px) calc(env(safe-area-inset-left) + 16px);
 }
 
-/* Header: title on the left, faint controls on the right; wraps on narrow phones. */
-.top {
-  display: flex;
-  flex-wrap: wrap-reverse;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px 12px;
-  margin-bottom: 14px;
-}
+/* Header: two calm lines — the date with its ‹ ›, then 일 주 월 with the light/dark toggle. */
+.top { margin-bottom: 18px; }
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.bar + .bar { margin-top: 6px; }
 .title {
   margin: 0;
   font-size: 16px;
   font-weight: 700;
   white-space: nowrap;
 }
-.controls { display: flex; align-items: center; gap: 2px; margin-left: auto; color: var(--faint); font-size: 13px; }
-.controls button { min-width: 32px; height: 32px; border-radius: 8px; }
-.controls .icon { font-size: 18px; line-height: 1; }
-.controls #theme { display: inline-grid; place-items: center; }.modes { display: inline-flex; margin: 0 6px; }
-.modes button { min-width: 26px; }
+.top button { height: 32px; border-radius: 8px; color: var(--faint); }
+.steps { display: flex; gap: 8px; margin-right: -10px; } /* the › lines up with the list's right edge */
+.steps button, #theme { min-width: 32px; display: inline-grid; place-items: center; }
+.icon { font-size: 18px; line-height: 1; }
+#theme { margin-right: -10px; }
+.modes { display: flex; }
+.modes button { padding-right: 22px; font-size: 14px; text-align: left; } /* starts where the date starts */
 .modes button.on { color: var(--ink); }
 
 /* Rows */
@@ -204,6 +201,6 @@ textarea::placeholder { color: var(--faint); }
 .connect b { color: var(--ink); font-size: 16px; }
 
 @media (hover: hover) {
-  .controls button:hover, .modes button:hover { color: var(--ink); }
+  .top button:hover { color: var(--ink); }
   .cell:hover { background: var(--hover); }
 }

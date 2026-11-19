@@ -8,6 +8,7 @@ enum Theme {
     static let body = Font.custom("Menlo", size: 13)
     static let bold = Font.custom("Menlo-Bold", size: 13)
     static let small = Font.custom("Menlo", size: 11)
+    static let mode = Font.custom("Menlo", size: 12)
     /// Space left of the text where the checkbox sits.
     static let gutter: CGFloat = 29
     static let side: CGFloat = 16
@@ -30,7 +31,7 @@ struct ContentView: View {
             Header()
                 .padding(.horizontal, Theme.side)
                 .padding(.top, 10)
-                .padding(.bottom, 12)
+                .padding(.bottom, 16)
             GeometryReader { viewport in
                 ScrollView {
                     TaskList(focus: $focus)
@@ -98,31 +99,37 @@ struct ContentView: View {
     }
 }
 
+/// Two calm lines: the date with its ‹ ›, then the day/week/month switch with the
+/// light/dark toggle.
 struct Header: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        HStack(alignment: .center, spacing: 0) {
-            Text(store.title)
-                .font(Theme.bold)
-                .lineLimit(1)
-                .onTapGesture { store.goToToday() }
-                .help("오늘로")
-            Spacer(minLength: 8)
-            IconButton(symbol: "chevron.left", help: "이전 (⌘[)") { store.step(-1) }
-            IconButton(symbol: "chevron.right", help: "다음 (⌘])") { store.step(1) }
-            Spacer().frame(width: 10)
-            ForEach(ViewMode.allCases) { mode in
-                Text(mode.label)
-                    .font(Theme.small)
-                    .foregroundStyle(store.mode == mode ? Color.primary : Theme.faint)
-                    .padding(.horizontal, 4)
-                    .frame(height: 18)
-                    .contentShape(Rectangle())
-                    .onTapGesture { store.mode = mode }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 0) {
+                Text(store.title)
+                    .font(Theme.bold)
+                    .lineLimit(1)
+                    .onTapGesture { store.goToToday() }
+                    .help("오늘로")
+                Spacer(minLength: 8)
+                IconButton(symbol: "chevron.left", help: "이전 (⌘[)") { store.step(-1) }
+                Spacer().frame(width: 8)
+                IconButton(symbol: "chevron.right", help: "다음 (⌘])") { store.step(1) }
             }
-            Spacer().frame(width: 8)
-            ThemeToggle()
+            HStack(alignment: .center, spacing: 0) {
+                ForEach(ViewMode.allCases) { mode in
+                    Text(mode.label)
+                        .font(Theme.mode)
+                        .foregroundStyle(store.mode == mode ? Color.primary : Theme.faint)
+                        .frame(height: 20)
+                        .padding(.trailing, 20) // the gap is part of the click area
+                        .contentShape(Rectangle())
+                        .onTapGesture { store.mode = mode }
+                }
+                Spacer(minLength: 8)
+                ThemeToggle()
+            }
         }
     }
 }
