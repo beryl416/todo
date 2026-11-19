@@ -7,9 +7,9 @@ enum ViewMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .day: return "일"
-        case .week: return "주"
-        case .month: return "월"
+        case .day: return "D"
+        case .week: return "W"
+        case .month: return "M"
         }
     }
     var scope: Scope {

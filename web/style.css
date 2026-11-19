@@ -1,17 +1,5 @@
 :root {
-  --bg: #ffffff;
-  --ink: #1d1d1f;
-  --soft: rgba(60, 60, 67, 0.62);
-  --faint: rgba(60, 60, 67, 0.36);
-  --box: rgba(60, 60, 67, 0.42);
-  --edge: rgba(29, 29, 31, 0.55);
-  --star: #f5a623;
-  --hover: rgba(0, 0, 0, 0.045);
-  --font: Menlo, ui-monospace, "SF Mono", monospace;
-  color-scheme: light;
-}
-
-:root[data-theme="dark"] {
+  /* Dark only. */
   --bg: #1e1e1e;
   --ink: #ededed;
   --soft: rgba(235, 235, 245, 0.6);
@@ -20,6 +8,7 @@
   --edge: rgba(237, 237, 237, 0.5);
   --star: #ffb93d;
   --hover: rgba(255, 255, 255, 0.06);
+  --font: Menlo, ui-monospace, "SF Mono", monospace;
   color-scheme: dark;
 }
 
@@ -54,23 +43,23 @@ button { cursor: pointer; touch-action: manipulation; }
            calc(env(safe-area-inset-bottom) + 40px) calc(env(safe-area-inset-left) + 16px);
 }
 
-/* Header: two calm lines — the date with its ‹ ›, then 일 주 월 with the light/dark toggle. */
-.top { margin-bottom: 18px; }
-.bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.bar + .bar { margin-top: 6px; }
+/* Header: one line — the date with its ‹ › right beside it, D W M on the far right. */
+.top { display: flex; align-items: center; margin-bottom: 18px; }
 .title {
   margin: 0;
+  min-width: 0;
   font-size: 16px;
   font-weight: 700;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .top button { height: 32px; border-radius: 8px; color: var(--faint); }
-.steps { display: flex; gap: 8px; margin-right: -10px; } /* the › lines up with the list's right edge */
-.steps button, #theme { min-width: 32px; display: inline-grid; place-items: center; }
+.steps { flex: none; display: flex; margin-left: 2px; }
+.steps button { min-width: 30px; display: inline-grid; place-items: center; }
 .icon { font-size: 18px; line-height: 1; }
-#theme { margin-right: -10px; }
-.modes { display: flex; }
-.modes button { padding-right: 22px; font-size: 14px; text-align: left; } /* starts where the date starts */
+.modes { flex: none; display: flex; margin-left: auto; margin-right: -12px; } /* M ends at the list's right edge */
+.modes button { min-width: 34px; font-size: 14px; }
 .modes button.on { color: var(--ink); }
 
 /* Rows */

@@ -23,8 +23,8 @@ struct TodoApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        Appearance.apply(Appearance.stored)
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .darkAqua) // dark only
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -49,9 +49,6 @@ struct TodoCommands: Commands {
             Button("이전") { store.step(-1) }.keyboardShortcut("[")
             Button("다음") { store.step(1) }.keyboardShortcut("]")
             Button("오늘") { store.goToToday() }.keyboardShortcut("t")
-            Divider()
-            Button("라이트/다크 모드 전환") { Appearance.toggle() }
-                .keyboardShortcut("d", modifiers: [.command, .shift])
             Divider()
         }
     }

@@ -7,7 +7,7 @@
 
 const SUPABASE_URL = 'https://hqyucrsqxvzwtyewxqhi.supabase.co';
 const PUBLISHABLE_KEY = 'sb_publishable_ZphNZVulyrdtVsKzK910jA_cZOAlQi4'; // public by design
-const K = { state: 'todo.state.v1', key: 'todo.key', theme: 'todo.theme', mode: 'todo.mode' };
+const K = { state: 'todo.state.v1', key: 'todo.key', mode: 'todo.mode' };
 const SCOPES = ['day', 'week', 'month'];
 
 const store = {
@@ -303,9 +303,6 @@ let rendering = false;    // a redraw removes text boxes; their blur is not the 
 let focusAfter = null;    // { edit: id } | { childAdd: parentId }
 
 const $ = (id) => document.getElementById(id);
-const svg = (body) => `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
-const ICON_MOON = svg('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>');
-const ICON_SUN = svg('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4"/>');
 
 function h(tag, props = {}, ...kids) {
   const el = document.createElement(tag);
@@ -400,9 +397,6 @@ function render() {
   document.querySelector('.top').hidden = false;
   $('title').textContent = titleText();
   for (const b of document.querySelectorAll('.modes button')) b.classList.toggle('on', b.dataset.mode === view.mode);
-  const dark = document.documentElement.dataset.theme === 'dark';
-  $('theme').innerHTML = dark ? ICON_SUN : ICON_MOON;
-  document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#1e1e1e' : '#ffffff');
 
   // Unfinished, then finished, then the add button.
   // A redraw puts the cursor back where it was, so the iPhone keyboard stays up.
@@ -689,12 +683,6 @@ $('prev').addEventListener('click', () => step(-1));
 $('next').addEventListener('click', () => step(1));
 $('title').addEventListener('click', () => { view.anchor = view.today; render(); });
 for (const b of document.querySelectorAll('.modes button')) b.addEventListener('click', () => setMode(b.dataset.mode));
-$('theme').addEventListener('click', () => {
-  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-  document.documentElement.dataset.theme = next;
-  store.set(K.theme, next);
-  render();
-});
 
 // Swipe left/right to move between days, weeks, or months.
 let touch = null;

@@ -99,36 +99,31 @@ struct ContentView: View {
     }
 }
 
-/// Two calm lines: the date with its ‹ ›, then the day/week/month switch with the
-/// light/dark toggle.
+/// One line: the date with its ‹ › right beside it, and the day/week/month switch
+/// on the far right.
 struct Header: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 0) {
-                Text(store.title)
-                    .font(Theme.bold)
-                    .lineLimit(1)
-                    .onTapGesture { store.goToToday() }
-                    .help("오늘로")
-                Spacer(minLength: 8)
-                IconButton(symbol: "chevron.left", help: "이전 (⌘[)") { store.step(-1) }
-                Spacer().frame(width: 8)
-                IconButton(symbol: "chevron.right", help: "다음 (⌘])") { store.step(1) }
-            }
-            HStack(alignment: .center, spacing: 0) {
-                ForEach(ViewMode.allCases) { mode in
-                    Text(mode.label)
-                        .font(Theme.mode)
-                        .foregroundStyle(store.mode == mode ? Color.primary : Theme.faint)
-                        .frame(height: 20)
-                        .padding(.trailing, 20) // the gap is part of the click area
-                        .contentShape(Rectangle())
-                        .onTapGesture { store.mode = mode }
-                }
-                Spacer(minLength: 8)
-                ThemeToggle()
+        HStack(alignment: .center, spacing: 0) {
+            Text(store.title)
+                .font(Theme.bold)
+                .lineLimit(1)
+                .onTapGesture { store.goToToday() }
+                .help("오늘로")
+            Spacer().frame(width: 6)
+            IconButton(symbol: "chevron.left", help: "이전 (⌘[)") { store.step(-1) }
+            IconButton(symbol: "chevron.right", help: "다음 (⌘])") { store.step(1) }
+            Spacer(minLength: 12)
+            ForEach(ViewMode.allCases) { mode in
+                Text(mode.label)
+                    .font(Theme.mode)
+                    .foregroundStyle(store.mode == mode ? Color.primary : Theme.faint)
+                    .frame(height: 20)
+                    .padding(.leading, 14) // the gap is part of the click area; M ends at the edge
+                    .help(mode == .day ? "일간 (⌘1)" : mode == .week ? "주간 (⌘2)" : "월간 (⌘3)")
+                    .contentShape(Rectangle())
+                    .onTapGesture { store.mode = mode }
             }
         }
     }
@@ -149,42 +144,6 @@ struct IconButton: View {
             .onHover { hovering = $0 }
             .onTapGesture(perform: action)
             .help(help)
-    }
-}
-
-enum Appearance {
-    static var stored: String { UserDefaults.standard.string(forKey: "appearance") ?? "" }
-
-    static func apply(_ value: String) {
-        switch value {
-        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
-        case "light": NSApp.appearance = NSAppearance(named: .aqua)
-        default: NSApp.appearance = nil
-        }
-    }
-
-    static var isDark: Bool { NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
-
-    static func toggle() {
-        let next = isDark ? "light" : "dark"
-        UserDefaults.standard.set(next, forKey: "appearance")
-        apply(next)
-    }
-}
-
-struct ThemeToggle: View {
-    @Environment(\.colorScheme) private var scheme
-    @State private var hovering = false
-
-    var body: some View {
-        Image(systemName: scheme == .dark ? "sun.max" : "moon")
-            .font(.system(size: 11))
-            .foregroundStyle(hovering ? Color.primary : Theme.faint)
-            .frame(width: 20, height: 18)
-            .contentShape(Rectangle())
-            .onHover { hovering = $0 }
-            .onTapGesture { Appearance.toggle() }
-            .help(scheme == .dark ? "라이트 모드 (⇧⌘D)" : "다크 모드 (⇧⌘D)")
     }
 }
 

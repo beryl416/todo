@@ -8,42 +8,26 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="done">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="theme-color" content="#1e1e1e">
   <meta name="format-detection" content="telephone=no">
   <meta name="robots" content="noindex">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
-  <script>
-    // Set the theme before first paint so the page never flashes the wrong colors.
-    (function () {
-      var t = null;
-      try { t = localStorage.getItem('todo.theme'); } catch (e) {}
-      if (t !== 'light' && t !== 'dark') {
-        t = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      }
-      document.documentElement.setAttribute('data-theme', t);
-    })();
-  </script>
 </head>
 <body>
   <div class="page">
     <header class="top" hidden>
-      <div class="bar">
-        <h1 class="title"><span id="title"></span></h1>
-        <nav class="steps">
-          <button id="prev" class="icon" aria-label="이전">‹</button>
-          <button id="next" class="icon" aria-label="다음">›</button>
-        </nav>
-      </div>
-      <div class="bar">
-        <nav class="modes">
-          <button data-mode="day">일</button>
-          <button data-mode="week">주</button>
-          <button data-mode="month">월</button>
-        </nav>
-        <button id="theme" class="icon" aria-label="라이트/다크 모드"></button>
-      </div>
+      <h1 class="title"><span id="title"></span></h1>
+      <nav class="steps">
+        <button id="prev" class="icon" aria-label="이전">‹</button>
+        <button id="next" class="icon" aria-label="다음">›</button>
+      </nav>
+      <nav class="modes">
+        <button data-mode="day" aria-label="일간">D</button>
+        <button data-mode="week" aria-label="주간">W</button>
+        <button data-mode="month" aria-label="월간">M</button>
+      </nav>
     </header>
     <main id="main"></main>
     <footer id="status"></footer>
