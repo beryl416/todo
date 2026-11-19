@@ -318,7 +318,7 @@ document.addEventListener('pointerdown', (e) => {
   // A tap outside the open to-do closes it.
   if (expandedId && !t.closest(`[data-block="${expandedId}"]`)) { collapse(); renderPending = true; }
   // A tap on empty space removes the cursor.
-  if (!t.closest('textarea, button, .text')) {
+  if (!t.closest('textarea, button, select, label, .text')) {
     const a = document.activeElement;
     if (a && a.tagName === 'TEXTAREA') a.blur();
   }
@@ -482,13 +482,14 @@ function row(item) {
         'aria-label': POSTPONE_LABEL[scopeOf(item)], onpointerdown: keep, onmousedown: keep,
         onclick: () => { collapse(); act(() => postpone(item.id)); },
       }, '→'),
+      moveButton(item),
       h('button', {
         'aria-label': '삭제', onpointerdown: keep, onmousedown: keep,
         onclick: () => { expandedId = null; editingId = null; act(() => removeItem(item.id)); },
       }, '×')));
     block.append(el);
     for (const child of childrenOf(item.id)) block.append(childRow(child));
-    block.append(childAddRow(item.id), scopeSwitch(item));
+    block.append(childAddRow(item.id));
   } else {
     el.append(h('div', { class: 'text', text: item.title, onclick: () => openItem(item.id) }));
     const kids = childrenOf(item.id);
@@ -566,19 +567,20 @@ function childAddRow(parentId) {
   return h('div', { class: 'row child-add' }, ta);
 }
 
-// "일 · 주 · 월" under an open to-do: the list it lives in, and where else it can go.
-function scopeSwitch(item) {
-  const wrap = h('div', { class: 'scopes' });
-  for (const scope of SCOPES) {
-    const here = scope === scopeOf(item);
-    wrap.append(h('button', {
-      class: here ? 'on' : '',
-      'aria-label': here ? `지금 ${SCOPE_LABEL[scope]}간 목록` : `${SCOPE_LABEL[scope]}간으로 옮기기`,
-      onpointerdown: keep, onmousedown: keep,
-      onclick: () => { if (here) return; collapse(); act(() => changeScope(item.id, scope)); },
-    }, SCOPE_LABEL[scope]));
-  }
-  return wrap;
+// The list a to-do lives in ("일", "주" or "월"). Tapping it opens the system picker
+// to move the whole to-do, sub-tasks included, to another list.
+function moveButton(item) {
+  const current = scopeOf(item);
+  const select = h('select', {
+    'aria-label': '다른 목록으로 옮기기',
+    onchange: (e) => {
+      const scope = e.target.value;
+      if (scope === current) return;
+      collapse();
+      act(() => changeScope(item.id, scope));
+    },
+  }, ...SCOPES.map((s) => h('option', { value: s, selected: s === current }, `${SCOPE_LABEL[s]}간 목록`)));
+  return h('label', { class: 'move' }, SCOPE_LABEL[current], select);
 }
 
 function addRow(list) {

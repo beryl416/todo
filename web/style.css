@@ -141,11 +141,11 @@ textarea::placeholder { color: var(--faint); }
 
 /* An open to-do: sub-tasks line their checkboxes up with the parent's title. */
 .row.child { padding: 6px 0 6px 32px; min-height: 36px; }
-.row.child-add { padding: 6px 0 6px 64px; min-height: 36px; }
+.row.child-add { padding: 6px 0 6px 32px; min-height: 36px; } /* starts where sub-task checkboxes start */
 .count { flex: none; margin-left: 8px; font-size: 12px; line-height: 22px; color: var(--faint); }
-.scopes { display: flex; gap: 2px; padding: 0 0 8px 58px; font-size: 13px; color: var(--faint); }
-.scopes button { min-width: 28px; height: 28px; border-radius: 8px; }
-.scopes button.on { color: var(--ink); }
+/* The list switch in an open to-do's tools: a letter over an invisible native picker. */
+.move { position: relative; width: 34px; height: 34px; display: grid; place-items: center; color: var(--soft); font-size: 14px; border-radius: 8px; }
+.move select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; font-size: 16px; }
 
 .tools { flex: none; display: flex; gap: 2px; margin: -6px -6px -6px 6px; }
 .tools button { width: 34px; height: 34px; border-radius: 8px; color: var(--soft); font-size: 15px; }

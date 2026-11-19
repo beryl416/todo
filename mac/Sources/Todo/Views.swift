@@ -194,7 +194,8 @@ func titleBinding(_ store: Store, _ id: UUID, onReturn: @escaping () -> Void) ->
 }
 
 /// A to-do. Clicking its title opens it: the title becomes editable and its
-/// sub-tasks, an "add sub-task" line and the day/week/month switch appear below.
+/// sub-tasks and an "add sub-task" line appear below. Moving it to the day, week
+/// or month list is in its right-click menu.
 struct TodoRow: View {
     let item: TodoItem
     var focus: FocusState<Focus?>.Binding
@@ -210,7 +211,6 @@ struct TodoRow: View {
             if expanded {
                 ForEach(store.state.children(of: item.id)) { ChildRow(item: $0, focus: focus) }
                 ChildAddRow(parentID: item.id, focus: focus)
-                ScopeSwitch(item: item)
             }
         }
     }
@@ -343,7 +343,7 @@ struct ChildAddRow: View {
                     }
                 }
         }
-        .padding(.leading, Theme.gutter * 2)
+        .padding(.leading, Theme.gutter) // starts where the sub-task checkboxes start
         .padding(.vertical, 5)
     }
 
@@ -360,37 +360,6 @@ struct ChildAddRow: View {
     }
 }
 
-/// "일 · 주 · 월" under an open to-do: the list it lives in, and where else it can go.
-struct ScopeSwitch: View {
-    let item: TodoItem
-    @Environment(Store.self) private var store
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Scope.allCases, id: \.self) { scope in
-                Text(label(scope))
-                    .font(Theme.small)
-                    .foregroundStyle(scope == item.scope ? Color.primary : Theme.faint)
-                    .padding(.horizontal, 4)
-                    .frame(height: 18)
-                    .contentShape(Rectangle())
-                    .onTapGesture { if scope != item.scope { store.changeScope(item.id, to: scope) } }
-                    .help(scope == item.scope ? "지금 목록" : Store.moveLabel(scope))
-            }
-        }
-        .padding(.leading, Theme.gutter * 2 - 4)
-        .padding(.top, 2)
-        .padding(.bottom, 6)
-    }
-
-    private func label(_ scope: Scope) -> String {
-        switch scope {
-        case .day: return "일"
-        case .week: return "주"
-        case .month: return "월"
-        }
-    }
-}
 
 struct AddRow: View {
     var focus: FocusState<Focus?>.Binding
