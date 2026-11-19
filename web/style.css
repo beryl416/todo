@@ -110,7 +110,7 @@ button { cursor: pointer; touch-action: manipulation; }
   cursor: text;
 }
 .done .text { color: var(--faint); text-decoration: line-through; }
-.star { flex: none; width: 28px; text-align: right; color: var(--soft); font-size: 14px; }
+.star { flex: none; width: 28px; text-align: right; color: var(--soft); font-size: 17px; line-height: 22px; }
 
 textarea {
   flex: 1;

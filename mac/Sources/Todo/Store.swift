@@ -64,6 +64,7 @@ final class Store {
             SyncClient(baseURL: AppConfig.supabaseURL, apiKey: AppConfig.publishableKey, syncKey: $0)
         }
         state.rollOver(to: now, now: Store.clock())
+        showPairing = CommandLine.arguments.contains("--show-pairing")
         startTimers()
         Task { await sync() }
     }
