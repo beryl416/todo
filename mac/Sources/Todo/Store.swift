@@ -205,19 +205,12 @@ final class Store {
         }
     }
 
+    /// Right-click menu: move a to-do to the day, week or month list.
     static func moveLabel(_ scope: Scope) -> String {
         switch scope {
-        case .day: return "일간으로 옮기기"
-        case .week: return "주간으로 옮기기"
-        case .month: return "월간으로 옮기기"
-        }
-    }
-
-    var postponeLabel: String {
-        switch mode {
-        case .day: return "내일로 미루기"
-        case .week: return "다음 주로 미루기"
-        case .month: return "다음 달로 미루기"
+        case .day: return "Daily"
+        case .week: return "Weekly"
+        case .month: return "Monthly"
         }
     }
 

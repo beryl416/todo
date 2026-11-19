@@ -272,15 +272,15 @@ struct TodoRow: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .contextMenu {
-            Button("하위 할 일 추가") { store.startAddingChild(to: item.id) }
-            Button("이름 바꾸기") { store.beginEditing(item.id) }
-            Button(item.starred ? "중요 표시 빼기" : "중요 표시") { store.toggleStar(item.id) }
-            if !item.done { Button(store.postponeLabel) { store.postpone(item.id) } }
+            Button("Subtask") { store.startAddingChild(to: item.id) }
+            Button("Rename") { store.beginEditing(item.id) }
+            Button(item.starred ? "Unstar" : "Star") { store.toggleStar(item.id) }
+            if !item.done { Button("Postpone") { store.postpone(item.id) } }
             ForEach(Scope.allCases.filter { $0 != item.scope }, id: \.self) { scope in
                 Button(Store.moveLabel(scope)) { store.changeScope(item.id, to: scope) }
             }
             Divider()
-            Button("삭제") { store.delete(item.id) }
+            Button("Delete") { store.delete(item.id) }
         }
         .onDrag {
             store.dragging = item.id
@@ -323,7 +323,7 @@ struct ChildRow: View {
         .padding(.leading, Theme.gutter)
         .padding(.vertical, 5)
         .contentShape(Rectangle())
-        .contextMenu { Button("삭제") { store.delete(item.id) } }
+        .contextMenu { Button("Delete") { store.delete(item.id) } }
     }
 }
 
