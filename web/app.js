@@ -632,7 +632,23 @@ function moveButton(item) {
   return h('label', { class: 'move' }, SCOPE_LABEL[current], select);
 }
 
+// The line for a new to-do, a little apart from the list. Its + sits where the
+// checkboxes sit; tapping it puts the cursor on the line (adding anything already typed).
 function addRow(list) {
+  const plus = h('button', {
+    class: 'plus',
+    'aria-label': '할 일 추가',
+    onpointerdown: keep, onmousedown: keep,
+    onclick: () => {
+      const text = ta.value;
+      ta.value = '';
+      finishEdits();
+      if (text.trim()) addItem(text, list);
+      scheduleSync();
+      focusAfter = { add: true };
+      render();
+    },
+  }, h('span'));
   const ta = h('textarea', {
     rows: 1,
     'data-add': '',
@@ -667,7 +683,7 @@ function addRow(list) {
       setTimeout(() => { if (renderPending) requestRender(); }, 0);
     },
   });
-  return h('div', { class: 'row add' }, ta);
+  return h('div', { class: 'row add' }, plus, ta);
 }
 
 // ---------- navigation ----------

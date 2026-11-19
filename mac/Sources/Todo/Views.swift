@@ -192,10 +192,12 @@ struct TaskList: View {
     @Environment(Store.self) private var store
 
     var body: some View {
+        let open = store.state.open(in: store.list)
+        let done = store.state.done(in: store.list)
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(store.state.open(in: store.list)) { TodoRow(item: $0, focus: focus) }
-            ForEach(store.state.done(in: store.list)) { TodoRow(item: $0, focus: focus) }
-            AddRow(focus: focus)
+            ForEach(open) { TodoRow(item: $0, focus: focus) }
+            ForEach(done) { TodoRow(item: $0, focus: focus) }
+            AddRow(focus: focus, apart: !(open.isEmpty && done.isEmpty))
         }
     }
 }
@@ -383,43 +385,82 @@ struct ChildAddRow: View {
 }
 
 
+/// The line for a new to-do, a little apart from the list. Its + sits where the
+/// checkboxes sit; clicking it puts the cursor on the line (adding anything already typed).
 struct AddRow: View {
     var focus: FocusState<Focus?>.Binding
+    /// Set when to-dos are listed above, so the line reads as a button, not one more to-do.
+    var apart: Bool
     @Environment(Store.self) private var store
     @State private var text = ""
+    @State private var hovering = false
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            if text.isEmpty {
-                Text("할 일 추가")
+        HStack(alignment: .top, spacing: 0) {
+            PlusMark()
+                .stroke(hovering ? Color.primary : Color.primary.opacity(0.55), lineWidth: 1.2)
+                .frame(width: 11, height: 11)
+                .frame(width: 13, height: 13) // the size of a checkbox
+                .frame(width: Theme.gutter, height: Theme.lineHeight, alignment: .leading)
+                .contentShape(Rectangle())
+                .onHover { hovering = $0 }
+                .onTapGesture(perform: plus)
+                .help("할 일 추가 (⌘N)")
+                .accessibilityElement()
+                .accessibilityLabel("할 일 추가")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { plus() }
+            ZStack(alignment: .topLeading) {
+                if text.isEmpty {
+                    Text("할 일 추가")
+                        .font(Theme.body)
+                        .foregroundStyle(Theme.faint)
+                        .allowsHitTesting(false)
+                }
+                TextField("", text: $text, axis: .vertical)
+                    .textFieldStyle(.plain)
                     .font(Theme.body)
-                    .foregroundStyle(Theme.faint)
-                    .allowsHitTesting(false)
-            }
-            TextField("", text: $text, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(Theme.body)
-                .focused(focus, equals: .add)
-                .onSubmit(submit)
-                .onExitCommand {
-                    text = ""
-                    focus.wrappedValue = nil
-                }
-                .onChange(of: text) { _, value in
-                    if value.contains("\n") {
-                        text = value.replacingOccurrences(of: "\n", with: "")
-                        submit()
+                    .focused(focus, equals: .add)
+                    .onSubmit(submit)
+                    .onExitCommand {
+                        text = ""
+                        focus.wrappedValue = nil
                     }
-                }
+                    .onChange(of: text) { _, value in
+                        if value.contains("\n") {
+                            text = value.replacingOccurrences(of: "\n", with: "")
+                            submit()
+                        }
+                    }
+            }
         }
-        .padding(.leading, Theme.gutter)
-        .padding(.vertical, Theme.rowPadding)
+        .padding(.top, apart ? Theme.rowPadding + 8 : Theme.rowPadding)
+        .padding(.bottom, Theme.rowPadding)
+    }
+
+    private func plus() {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            focus.wrappedValue = .add
+        } else {
+            submit()
+        }
     }
 
     private func submit() {
         store.add(text)
         text = ""
         DispatchQueue.main.async { focus.wrappedValue = .add }
+    }
+}
+
+struct PlusMark: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.midX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.midX, y: r.maxY))
+        p.move(to: CGPoint(x: r.minX, y: r.midY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.midY))
+        return p
     }
 }
 
