@@ -24,8 +24,6 @@
     <string>14.0</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
-    <key>ATSApplicationFontsPath</key>
-    <string>Fonts</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSSupportsAutomaticTermination</key>

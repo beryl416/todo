@@ -34,12 +34,6 @@ final class Store {
     var mode: ViewMode {
         didSet { UserDefaults.standard.set(mode.rawValue, forKey: "mode") }
     }
-    var font: FontChoice {
-        didSet {
-            UserDefaults.standard.set(font.rawValue, forKey: "font")
-            Theme.choice = font
-        }
-    }
     /// The day the current view is built around.
     var anchor: Day
     private(set) var today: Day
@@ -68,8 +62,6 @@ final class Store {
         let now = Day.today()
         today = now
         anchor = now
-        font = FontChoice.saved
-        Theme.choice = FontChoice.saved
         let savedMode = ProcessInfo.processInfo.environment["TODO_MODE"] ?? UserDefaults.standard.string(forKey: "mode")
         mode = ViewMode(rawValue: savedMode ?? "") ?? .day
         syncKey = AppConfig.loadSyncKey()
@@ -133,11 +125,6 @@ final class Store {
     }
 
     func goToToday() { anchor = today }
-
-    func cycleFont() {
-        let all = FontChoice.allCases
-        font = all[(all.firstIndex(of: font)! + 1) % all.count]
-    }
 
     func show(day: Day) {
         anchor = day

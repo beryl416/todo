@@ -479,11 +479,6 @@ $('prev').addEventListener('click', () => step(-1));
 $('next').addEventListener('click', () => step(1));
 $('title').addEventListener('click', () => { view.anchor = view.today; render(); });
 for (const b of document.querySelectorAll('.modes button')) b.addEventListener('click', () => setMode(b.dataset.mode));
-$('font').addEventListener('click', () => {
-  const next = document.documentElement.dataset.font === 'hahmlet' ? 'menlo' : 'hahmlet';
-  document.documentElement.dataset.font = next;
-  store.set('todo.font', next);
-});
 $('theme').addEventListener('click', () => {
   const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
   document.documentElement.dataset.theme = next;

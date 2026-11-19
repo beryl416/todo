@@ -17,6 +17,5 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/done"
 cp "$ROOT/mac/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/build/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
-cp -R "$ROOT/mac/Resources/Fonts" "$APP/Contents/Resources/Fonts"   # Hahmlet (OFL), loaded via ATSApplicationFontsPath
 codesign --force --sign - "$APP"
 echo "built $APP"
